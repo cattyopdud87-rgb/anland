@@ -57,7 +57,7 @@ jobs:
         id: set-matrix
         run: |
           ALL_TARGETS='[
-            {"name":"kwin-kde-neon","image":"ubuntu:24.04","family":"deb","script":"producers/kde/neon_v5/build.sh"},
+            {"name":"kwin-kde-neon","image":"ubuntu:22.04","family":"deb","script":"producers/kde/neon_v5/build.sh"},
             {"name":"kwin-ubuntu-2604","image":"ubuntu:26.04","family":"deb","script":"producers/kde/ubuntu2604_v5/build.sh"},
             {"name":"kwin-debian-13","image":"debian:13","family":"deb","script":"producers/kde/Debian13_v5/build.sh"},
             {"name":"kwin-fedora-43","image":"fedora:43","family":"rpm","script":"producers/kde/Fedora43_v5/build.sh"},

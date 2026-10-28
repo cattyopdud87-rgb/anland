@@ -42,11 +42,12 @@ warn() { printf '\033[1;33m[warn] %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m[error] %s\033[0m\n' "$*" >&2; exit 1; }
 
 ensure_neon_repos() {
-    log "Configuring KDE neon Noble repositories and keys"
+    local suite="${NEON_SUITE:-jammy}"
+    log "Configuring KDE neon ($suite) repositories and keys"
     $SUDO apt-get update -qq || true
-    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg devscripts equivs || die "failed to install curl/gnupg/devscripts"
+    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg devscripts || die "failed to install curl/gnupg/devscripts"
 
-    # 1. Enable deb-src in ubuntu.sources
+    # 1. Enable deb-src in sources
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
         $SUDO sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
     elif [ -f /etc/apt/sources.list ]; then
@@ -62,18 +63,14 @@ ensure_neon_repos() {
 
     # 3. Add Neon apt source
     $SUDO mkdir -p /etc/apt/sources.list.d
-    cat <<'EOF' | $SUDO tee /etc/apt/sources.list.d/neon.list >/dev/null
-deb [signed-by=/etc/apt/trusted.gpg.d/neon-archive-keyring.gpg] http://archive.neon.kde.org/user noble main
-deb-src [signed-by=/etc/apt/trusted.gpg.d/neon-archive-keyring.gpg] http://archive.neon.kde.org/user noble main
+    cat <<EOF | $SUDO tee /etc/apt/sources.list.d/neon.list >/dev/null
+deb [signed-by=/etc/apt/trusted.gpg.d/neon-archive-keyring.gpg] http://archive.neon.kde.org/user $suite main
+deb-src [signed-by=/etc/apt/trusted.gpg.d/neon-archive-keyring.gpg] http://archive.neon.kde.org/user $suite main
 EOF
 
     # 4. Add Neon apt preferences
     $SUDO mkdir -p /etc/apt/preferences.d
     cat <<'EOF' | $SUDO tee /etc/apt/preferences.d/99-neon >/dev/null
-Package: *
-Pin: release o="user noble"
-Pin-Priority: 1001
-
 Package: *
 Pin: origin "archive.neon.kde.org"
 Pin-Priority: 1001
@@ -92,26 +89,17 @@ build_pkg() {
         mkdir -p "$WORKDIR/$src"
         log "Reusing prepared KWin source: $tree"
     else
+        log "Installing build dependencies for '$src'"
+        $SUDO apt-get build-dep -y "$src" || warn "apt-get build-dep for $src had issues; continuing"
+
         log "Fetching source for '$src'"
+        rm -rf "${WORKDIR:?}/$src"
         mkdir -p "$WORKDIR/$src"
         ( cd "$WORKDIR/$src" && apt-get source "$src" ) \
             || die "apt-get source $src failed"
         tree="$(find "$WORKDIR/$src" -maxdepth 1 -type d -name "${src}-*" | head -1)"
         [ -n "$tree" ] || die "could not find unpacked source tree for $src"
-
-        # Adapt KDE neon debian/control for ARM64 package naming (libkf6*-dev and extra-cmake-modules)
-        if [ "$src" = "kwin" ] && [ -f "$tree/debian/control" ]; then
-            log "Normalizing Neon ARM64 build dependency names in $tree/debian/control"
-            sed -i -e 's/\bkf6-extra-cmake-modules\b/extra-cmake-modules/g' \
-                   -e 's/\bkf6-\([a-z0-9]\+\)-dev\b/libkf6\1-dev/g' "$tree/debian/control"
-        fi
-
-        log "Installing build dependencies for '$src'"
-        $SUDO apt-get build-dep -y "$tree" || \
-            ( cd "$tree" && $SUDO mk-build-deps -i -r -t "apt-get -y --no-install-recommends" debian/control ) || \
-            die "build-dep for $src failed"
     fi
-    ( cd "$tree" && dpkg-checkbuilddeps ) || die "build dependencies missing for $src"
 
     local overlay_dir="$SCRIPT_DIR/$src"
     if [ -d "$overlay_dir" ]; then
@@ -132,7 +120,7 @@ build_pkg() {
 
     log "Building '$src' (.deb, keeping official version)"
     ( cd "$tree" && DEB_BUILD_OPTIONS="nocheck parallel=$JOBS" \
-        dpkg-buildpackage -b -uc -us -d -nc ) \
+        dpkg-buildpackage -b -uc -us -d ) \
         || die "dpkg-buildpackage failed for $src"
 
     if [ "${ANLAND_INSTALL:-0}" != 1 ]; then
