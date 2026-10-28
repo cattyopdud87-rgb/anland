@@ -28,6 +28,11 @@ QString AnlandInputDevice::name() const
     return QStringLiteral("anland virtual input");
 }
 
+QString AnlandInputDevice::sysName() const
+{
+    return QStringLiteral("anland");
+}
+
 bool AnlandInputDevice::isEnabled() const
 {
     return m_enabled;

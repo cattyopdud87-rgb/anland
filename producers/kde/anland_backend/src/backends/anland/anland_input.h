@@ -26,6 +26,7 @@ public:
     explicit AnlandInputDevice(QObject *parent = nullptr);
 
     QString name() const override;
+    QString sysName() const override;
     bool isEnabled() const override;
     void setEnabled(bool enabled) override;
     LEDs leds() const override;
