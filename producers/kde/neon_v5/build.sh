@@ -44,7 +44,7 @@ die()  { printf '\033[1;31m[error] %s\033[0m\n' "$*" >&2; exit 1; }
 ensure_neon_repos() {
     log "Configuring KDE neon Noble repositories and keys"
     $SUDO apt-get update -qq || true
-    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg || die "failed to install curl/gnupg"
+    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg devscripts equivs || die "failed to install curl/gnupg/devscripts"
 
     # 1. Enable deb-src in ubuntu.sources
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
@@ -71,8 +71,12 @@ EOF
     $SUDO mkdir -p /etc/apt/preferences.d
     cat <<'EOF' | $SUDO tee /etc/apt/preferences.d/99-neon >/dev/null
 Package: *
-Pin: origin archive.neon.kde.org
-Pin-Priority: 900
+Pin: release o="user noble"
+Pin-Priority: 1001
+
+Package: *
+Pin: origin "archive.neon.kde.org"
+Pin-Priority: 1001
 EOF
 
     $SUDO apt-get update -qq || warn "apt-get update reported issues"
@@ -88,14 +92,24 @@ build_pkg() {
         mkdir -p "$WORKDIR/$src"
         log "Reusing prepared KWin source: $tree"
     else
-        log "Installing build dependencies for '$src'"
-        $SUDO apt-get build-dep -y "$src" || die "build-dep for $src failed"
         log "Fetching source for '$src'"
         mkdir -p "$WORKDIR/$src"
         ( cd "$WORKDIR/$src" && apt-get source "$src" ) \
             || die "apt-get source $src failed"
         tree="$(find "$WORKDIR/$src" -maxdepth 1 -type d -name "${src}-*" | head -1)"
         [ -n "$tree" ] || die "could not find unpacked source tree for $src"
+
+        # Adapt KDE neon debian/control for ARM64 package naming (libkf6*-dev and extra-cmake-modules)
+        if [ "$src" = "kwin" ] && [ -f "$tree/debian/control" ]; then
+            log "Normalizing Neon ARM64 build dependency names in $tree/debian/control"
+            sed -i -e 's/\bkf6-extra-cmake-modules\b/extra-cmake-modules/g' \
+                   -e 's/\bkf6-\([a-z0-9]\+\)-dev\b/libkf6\1-dev/g' "$tree/debian/control"
+        fi
+
+        log "Installing build dependencies for '$src'"
+        $SUDO apt-get build-dep -y "$tree" || \
+            ( cd "$tree" && $SUDO mk-build-deps -i -r -t "apt-get -y --no-install-recommends" debian/control ) || \
+            die "build-dep for $src failed"
     fi
     ( cd "$tree" && dpkg-checkbuilddeps ) || die "build dependencies missing for $src"
 
