@@ -67,7 +67,7 @@ jobs:
           ]'
           TARGET="${{ inputs.target || 'all' }}"
           if [ "$TARGET" = "all" ] || [ -z "$TARGET" ]; then
-            SELECTED="$ALL_TARGETS"
+            SELECTED="$(echo "$ALL_TARGETS" | jq -c .)"
           else
             SELECTED="$(echo "$ALL_TARGETS" | jq -c "[.[] | select(.name == \"$TARGET\")]")"
           fi
