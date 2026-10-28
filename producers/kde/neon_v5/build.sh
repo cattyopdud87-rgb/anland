@@ -45,7 +45,7 @@ ensure_neon_repos() {
     local suite="${NEON_SUITE:-jammy}"
     log "Configuring KDE neon ($suite) repositories and keys"
     $SUDO apt-get update -qq || true
-    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg devscripts || die "failed to install curl/gnupg/devscripts"
+    $SUDO apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg devscripts libpipewire-0.3-dev libdrm-dev || die "failed to install curl/gnupg/devscripts"
 
     # 1. Enable deb-src in sources
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then

@@ -44,5 +44,12 @@ target_include_directories(kwin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/libdisplay_producer
     ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
-# PkgConfig::PipeWire is already resolved at the top level for the screencast plugin.
-target_link_libraries(kwin PRIVATE Libdrm::Libdrm PkgConfig::PipeWire)
+find_package(PkgConfig QUIET)
+if (NOT TARGET PkgConfig::PipeWire)
+    pkg_check_modules(PipeWire QUIET IMPORTED_TARGET libpipewire-0.3)
+endif()
+if (TARGET PkgConfig::PipeWire)
+    target_link_libraries(kwin PRIVATE Libdrm::Libdrm PkgConfig::PipeWire)
+else()
+    target_link_libraries(kwin PRIVATE Libdrm::Libdrm)
+endif()
