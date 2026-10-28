@@ -76,9 +76,13 @@ Pin: origin "archive.neon.kde.org"
 Pin-Priority: 1001
 EOF
 
+    # 5. Add PipeWire Upstream PPA for pipewire >= 0.3.65 on Ubuntu 22.04
+    $SUDO apt-get install -y --no-install-recommends software-properties-common
+    $SUDO add-apt-repository -y ppa:pipewire-debian/pipewire-upstream || true
+
     $SUDO apt-get update -qq || warn "apt-get update reported issues"
     $SUDO apt-get dist-upgrade -y --allow-downgrades --no-install-recommends
-    $SUDO apt-get install -y --allow-downgrades --no-install-recommends libdrm-dev
+    $SUDO apt-get install -y --allow-downgrades --no-install-recommends libdrm-dev libpipewire-0.3-dev
 }
 
 build_pkg() {

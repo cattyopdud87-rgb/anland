@@ -44,4 +44,4 @@ target_include_directories(kwin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/libdisplay_producer
     ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
-target_link_libraries(kwin PRIVATE Libdrm::Libdrm)
+target_link_libraries(kwin PRIVATE Libdrm::Libdrm PkgConfig::PipeWire)
