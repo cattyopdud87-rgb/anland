@@ -113,29 +113,23 @@ void AnlandInputDevice::pointerMotion(const QPointF &position, const QPointF &de
 void AnlandInputDevice::pointerButton(quint32 button, bool pressed)
 {
     Q_EMIT pointerButtonChanged(button,
-                                pressed ? PointerButtonState::Pressed : PointerButtonState::Released,
+                                pressed ? InputRedirection::PointerButtonPressed : InputRedirection::PointerButtonReleased,
                                 now(), this);
     Q_EMIT InputDevice::pointerFrame(this);
 }
 
-void AnlandInputDevice::pointerAxis(PointerAxis axis, qreal delta, qint32 deltaV120)
+void AnlandInputDevice::pointerAxis(InputRedirection::PointerAxis axis, qreal delta, qint32 deltaV120)
 {
-    const PointerAxisSource source =
-        deltaV120 != 0 ? PointerAxisSource::Wheel : PointerAxisSource::Continuous;
-    // 6.x pointerAxisChanged carries an explicit "inverted" (natural scroll) flag;
-    // the daemon already delivers deltas in KWin's direction, so it is never set.
-#ifdef ANLAND_KWIN_68
-    Q_EMIT pointerAxisChanged(axis, delta, deltaV120, source, false, false, now(), this);
-#else
-    Q_EMIT pointerAxisChanged(axis, delta, deltaV120, source, false, now(), this);
-#endif
+    const InputRedirection::PointerAxisSource source =
+        deltaV120 != 0 ? InputRedirection::PointerAxisSourceWheel : InputRedirection::PointerAxisSourceContinuous;
+    Q_EMIT pointerAxisChanged(axis, delta, deltaV120, source, now(), this);
     Q_EMIT InputDevice::pointerFrame(this);
 }
 
 void AnlandInputDevice::keyboardKey(quint32 keycode, bool pressed)
 {
     Q_EMIT keyChanged(keycode,
-                      pressed ? KeyboardKeyState::Pressed : KeyboardKeyState::Released,
+                      pressed ? InputRedirection::KeyboardKeyPressed : InputRedirection::KeyboardKeyReleased,
                       now(), this);
 }
 
