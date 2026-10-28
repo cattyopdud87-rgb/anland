@@ -78,7 +78,7 @@ EOF
 
     $SUDO apt-get update -qq || warn "apt-get update reported issues"
     $SUDO apt-get dist-upgrade -y --allow-downgrades --no-install-recommends
-    $SUDO apt-get install -y --allow-downgrades --no-install-recommends libdrm-dev libpipewire-0.3-dev
+    $SUDO apt-get install -y --allow-downgrades --no-install-recommends libdrm-dev
 }
 
 build_pkg() {
