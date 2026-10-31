@@ -1,6 +1,9 @@
 name: Build Patched Anland Artifacts (KWin & Android Consumer)
 
 on:
+  push:
+    branches:
+      - "fix/on-demand-audio-lifecycle"
   workflow_dispatch:
     inputs:
       build_xwayland:
