@@ -1,0 +1,151 @@
+name: Build Patched Anland Artifacts (KWin & Android Consumer)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_xwayland:
+        description: 'Rebuild Xwayland (0=reuse pacman xwayland, 1=rebuild)'
+        required: false
+        default: '0'
+        type: choice
+        options: ['0', '1']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-patched-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-kwin-arch-arm:
+    name: Build Patched KWin (Arch Linux ARM aarch64)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: lfdevs/archlinuxarm:base-devel@sha256:d934bb0ae5335373c3f3c926fdbae6a53157eeb9796bdfd8aee7250e903665d9
+    steps:
+      - name: Checkout Patch Commit
+        uses: actions/checkout@v4
+
+      - name: Bootstrap Build Environment
+        run: |
+          pacman -Syyu --noconfirm base-devel sudo git xorg-xwayland
+          useradd -m -s /bin/bash builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build Patched KWin Package
+        env:
+          WORKDIR: ${{ github.workspace }}/out
+          BUILD_XWAYLAND: ${{ inputs.build_xwayland || '0' }}
+          ANLAND_INSTALL: '0'
+          JOBS: '4'
+        run: |
+          su builder -s /bin/bash -c \
+            "cd '$GITHUB_WORKSPACE' && WORKDIR='$WORKDIR' bash producers/kde/Arch_v5/build.sh --noconfirm --nocheck"
+
+      - name: Verify Binary Forensics in libkwin.so
+        run: |
+          KWIN_PKG=$(find "$GITHUB_WORKSPACE/out" -name 'kwin-*.pkg.tar.*' | head -n 1)
+          [ -f "$KWIN_PKG" ] || { echo "::error::KWin package was not produced"; exit 1; }
+          mkdir -p /tmp/kwin_verify
+          tar -xf "$KWIN_PKG" -C /tmp/kwin_verify usr/lib/libkwin.so.6.8.0
+          
+          # 1. Verify AArch64 ELF Architecture
+          readelf -h /tmp/kwin_verify/usr/lib/libkwin.so.6.8.0 | grep -q 'AArch64' || {
+            echo "::error::Architecture is not AArch64"; exit 2;
+          }
+          
+          # 2. Verify dynamic dependency on libpipewire
+          readelf -d /tmp/kwin_verify/usr/lib/libkwin.so.6.8.0 | grep NEEDED | grep -q 'libpipewire-0.3.so.0' || {
+            echo "::error::Missing NEEDED libpipewire-0.3.so.0"; exit 3;
+          }
+          
+          # 3. Verify sendmsg and poll dynamic symbol linkage (newly introduced by patched anland_audio.c)
+          readelf -s /tmp/kwin_verify/usr/lib/libkwin.so.6.8.0 | grep -q 'sendmsg@' || {
+            echo "::error::sendmsg dynamic symbol missing in libkwin.so"; exit 4;
+          }
+          readelf -s /tmp/kwin_verify/usr/lib/libkwin.so.6.8.0 | grep -q 'poll@' || {
+            echo "::error::poll dynamic symbol missing in libkwin.so"; exit 5;
+          }
+          
+          echo "Binary forensics: AArch64, libpipewire-0.3, sendmsg, and poll verified in libkwin.so.6.8.0"
+
+      - name: Collect & Checksum Artifacts
+        run: |
+          mkdir -p dist_kwin
+          find "$GITHUB_WORKSPACE/out" -name 'kwin-*.pkg.tar.*' -exec cp -t dist_kwin/ {} +
+          cp /tmp/kwin_verify/usr/lib/libkwin.so.6.8.0 dist_kwin/libkwin.so.6.8.0
+          cd dist_kwin
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload KWin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anland-kwin-arch-arm-6.8.0-1.1-patched
+          path: dist_kwin/
+          if-no-files-found: error
+
+  build-consumer-apk:
+    name: Build Patched Android Consumer APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Patch Commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools build-tools;34.0.0 ndk;29.0.13113456"
+          accept-android-sdk-licenses: true
+
+      - name: Assemble Release APK
+        working-directory: consumers/anland_v5/android_consumer
+        run: |
+          mkdir -p $HOME/.android
+          keytool -genkeypair -v -keystore $HOME/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US" -noprompt
+          chmod +x gradlew
+          ./gradlew assemblePlainRelease \
+            -Pandroid.injected.signing.store.file="$HOME/.android/debug.keystore" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
+
+      - name: Verify Consumer Native Library
+        run: |
+          APK="consumers/anland_v5/android_consumer/app/build/outputs/apk/plain/release/app-plain-release.apk"
+          [ -f "$APK" ] || { echo "::error::APK was not produced"; exit 1; }
+          mkdir -p /tmp/apk_verify
+          unzip -p "$APK" lib/arm64-v8a/libanland_consumer.so > /tmp/apk_verify/libanland_consumer.so
+          readelf -h /tmp/apk_verify/libanland_consumer.so | grep -q 'AArch64' || exit 2
+          nm -D /tmp/apk_verify/libanland_consumer.so | grep -q 'Java_com_anland_consumer' || exit 3
+          echo "Consumer verification: AArch64 and JNI exports confirmed in libanland_consumer.so"
+
+      - name: Collect & Checksum Consumer Artifacts
+        run: |
+          mkdir -p dist_consumer
+          cp consumers/anland_v5/android_consumer/app/build/outputs/apk/plain/release/app-plain-release.apk dist_consumer/anland-v5-patched.apk
+          cp /tmp/apk_verify/libanland_consumer.so dist_consumer/libanland_consumer.so
+          cd dist_consumer
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload Consumer Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: anland-consumer-v5-patched
+          path: dist_consumer/
+          if-no-files-found: error
