@@ -607,8 +607,13 @@ void AnlandBackend::processInputEvent(const anland_device_input_t &ev)
         break;
     case ANLAND_DEVICE_IN_PTR_AXIS: {
         // protocol axis: 0 = vertical scroll, 1 = horizontal scroll (wayland order)
+#ifdef ANLAND_KWIN_68
+        const PointerAxis axis =
+            ev.pointer_axis.axis == 0 ? PointerAxis::Vertical : PointerAxis::Horizontal;
+#else
         const InputRedirection::PointerAxis axis =
             ev.pointer_axis.axis == 0 ? InputRedirection::PointerAxisVertical : InputRedirection::PointerAxisHorizontal;
+#endif
         m_inputDevice->pointerAxis(axis, ev.pointer_axis.value, ev.pointer_axis.discrete * 120);
         break;
     }

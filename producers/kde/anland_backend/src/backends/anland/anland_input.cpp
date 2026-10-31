@@ -28,10 +28,12 @@ QString AnlandInputDevice::name() const
     return QStringLiteral("anland virtual input");
 }
 
+#ifndef ANLAND_KWIN_68
 QString AnlandInputDevice::sysName() const
 {
     return QStringLiteral("anland");
 }
+#endif
 
 bool AnlandInputDevice::isEnabled() const
 {
@@ -112,12 +114,29 @@ void AnlandInputDevice::pointerMotion(const QPointF &position, const QPointF &de
 
 void AnlandInputDevice::pointerButton(quint32 button, bool pressed)
 {
+#ifdef ANLAND_KWIN_68
+    Q_EMIT pointerButtonChanged(button,
+                                pressed ? PointerButtonState::Pressed : PointerButtonState::Released,
+                                now(), this);
+#else
     Q_EMIT pointerButtonChanged(button,
                                 pressed ? InputRedirection::PointerButtonPressed : InputRedirection::PointerButtonReleased,
                                 now(), this);
+#endif
     Q_EMIT InputDevice::pointerFrame(this);
 }
 
+#ifdef ANLAND_KWIN_68
+void AnlandInputDevice::pointerAxis(PointerAxis axis, qreal delta, qint32 deltaV120)
+{
+    const PointerAxisSource source =
+        deltaV120 != 0 ? PointerAxisSource::Wheel : PointerAxisSource::Continuous;
+    // 6.x pointerAxisChanged carries an explicit "inverted" (natural scroll) flag;
+    // the daemon already delivers deltas in KWin's direction, so it is never set.
+    Q_EMIT pointerAxisChanged(axis, delta, deltaV120, source, false, false, now(), this);
+    Q_EMIT InputDevice::pointerFrame(this);
+}
+#else
 void AnlandInputDevice::pointerAxis(InputRedirection::PointerAxis axis, qreal delta, qint32 deltaV120)
 {
     const InputRedirection::PointerAxisSource source =
@@ -125,12 +144,19 @@ void AnlandInputDevice::pointerAxis(InputRedirection::PointerAxis axis, qreal de
     Q_EMIT pointerAxisChanged(axis, delta, deltaV120, source, now(), this);
     Q_EMIT InputDevice::pointerFrame(this);
 }
+#endif
 
 void AnlandInputDevice::keyboardKey(quint32 keycode, bool pressed)
 {
+#ifdef ANLAND_KWIN_68
+    Q_EMIT keyChanged(keycode,
+                      pressed ? KeyboardKeyState::Pressed : KeyboardKeyState::Released,
+                      now(), this);
+#else
     Q_EMIT keyChanged(keycode,
                       pressed ? InputRedirection::KeyboardKeyPressed : InputRedirection::KeyboardKeyReleased,
                       now(), this);
+#endif
 }
 
 void AnlandInputDevice::touchDown(qint32 id, const QPointF &position)

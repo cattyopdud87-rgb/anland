@@ -26,7 +26,9 @@ public:
     explicit AnlandInputDevice(QObject *parent = nullptr);
 
     QString name() const override;
+#ifndef ANLAND_KWIN_68
     QString sysName() const override;
+#endif
     bool isEnabled() const override;
     void setEnabled(bool enabled) override;
     LEDs leds() const override;
@@ -45,7 +47,11 @@ public:
     void pointerMotionAbsolute(const QPointF &position);
     void pointerMotion(const QPointF &position, const QPointF &delta, const QPointF &deltaNonAccelerated);
     void pointerButton(quint32 button, bool pressed);
+#ifdef ANLAND_KWIN_68
+    void pointerAxis(PointerAxis axis, qreal delta, qint32 deltaV120);
+#else
     void pointerAxis(InputRedirection::PointerAxis axis, qreal delta, qint32 deltaV120);
+#endif
     void keyboardKey(quint32 keycode, bool pressed);
     void touchDown(qint32 id, const QPointF &position);
     void touchMotion(qint32 id, const QPointF &position);
