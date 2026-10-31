@@ -203,6 +203,7 @@ struct OutputEvent{
 #define AUDIO_MSG_PCM    2
 #define AUDIO_MSG_SHM 3 // request shared-memory ring-buffer audio transport instead of socket sends (fewer copies, lower latency)
 #define AUDIO_MSG_SHM_FD 4 // producer -> consumer: shared-memory fd, consumer mmaps it and reads audio data directly
+#define AUDIO_MSG_MIC_REQUEST 5 /* producer -> consumer: payload uint32_t active (1=demand active, 0=idle) */
 
 /* PCM sample format codes for struct audio_format.format. */
 #define AUDIO_FORMAT_S16LE 0

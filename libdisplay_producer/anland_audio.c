@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -42,6 +43,7 @@ struct anland_audio {
     struct spa_hook        capture_listener;
     struct pw_stream      *source;    /* virtual Audio/Source <- socket (capture) */
     struct spa_hook        source_listener;
+    bool                   mic_demand;
 
     /* Negotiated formats (the consumer owns the hardware and dictates these via
      * AUDIO_MSG_FORMAT). Defaults stand until the consumer's formats arrive. */
@@ -179,9 +181,43 @@ static const struct pw_stream_events capture_events = {
     .process = on_capture_process,
 };
 
+static void send_mic_demand(struct anland_audio *a, bool active)
+{
+    if (a->audio_fd < 0) {
+        a->mic_demand = active;
+        return;
+    }
+    a->mic_demand = active;
+    struct audio_msg h = { .type = AUDIO_MSG_MIC_REQUEST, .size = sizeof(uint32_t) };
+    uint32_t payload = active ? 1 : 0;
+    struct iovec iov[2] = {
+        { .iov_base = &h, .iov_len = sizeof(h) },
+        { .iov_base = &payload, .iov_len = sizeof(payload) },
+    };
+    struct msghdr msg = { .msg_iov = iov, .msg_iovlen = 2 };
+    ssize_t ret = sendmsg(a->audio_fd, &msg, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        struct pollfd pfd = { .fd = a->audio_fd, .events = POLLOUT };
+        if (poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLOUT)) {
+            sendmsg(a->audio_fd, &msg, MSG_DONTWAIT | MSG_NOSIGNAL);
+        }
+    }
+}
+
+static void on_source_state_changed(void *data, enum pw_stream_state old,
+                                    enum pw_stream_state state, const char *error)
+{
+    struct anland_audio *a = data;
+    (void)old;
+    (void)error;
+    bool active = (state == PW_STREAM_STATE_STREAMING);
+    send_mic_demand(a, active);
+}
+
 static const struct pw_stream_events source_events = {
     PW_VERSION_STREAM_EVENTS,
     .process = on_source_process,
+    .state_changed = on_source_state_changed,
 };
 
 /* Apply a consumer-announced format. The virtual device stays continuously online
@@ -480,6 +516,8 @@ void anland_audio_set_fd(int audio_fd)
                                    SPA_IO_IN, true, on_audio_readable, a);
             if (a->io) {
                 a->audio_fd = owned_fd;
+                if (a->mic_demand)
+                    send_mic_demand(a, true);
             } else {
                 close(owned_fd);
             }
