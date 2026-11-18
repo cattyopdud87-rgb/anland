@@ -88,6 +88,23 @@ export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=KDE
 export XDG_SESSION_DESKTOP=KDE
 
+# Headless loop prevention: ensure user drop-in guards exist for Droidspaces / Anland
+USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+for svc in plasma-polkit-agent.service plasma-kded6.service plasma-plasmashell.service plasma-powerdevil.service plasma-xdg-desktop-portal-kde.service; do
+    if [ ! -d "$USER_SYSTEMD_DIR/${svc}.d" ] && [ ! -d "/etc/systemd/user/${svc}.d" ]; then
+        mkdir -p "$USER_SYSTEMD_DIR/${svc}.d"
+        cat << "EOF" > "$USER_SYSTEMD_DIR/${svc}.d/override.conf"
+[Unit]
+ConditionPathExists=/run/display.sock
+
+[Service]
+Restart=no
+TimeoutStartSec=15sec
+TimeoutStopSec=5sec
+EOF
+    fi
+done
+
 if [[ "$START_PLASMA" == 1 ]]; then
     # plasma_session starts kwin_wayland_wrapper and publishes the display
     # environment on this same bus. The patched KWin selects Anland through
