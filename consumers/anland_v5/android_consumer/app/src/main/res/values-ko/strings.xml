@@ -26,14 +26,16 @@
         <item>세로 모드 강제</item>
     </string-array>
     <!-- Bind key -->
-    <string name="bind_key_button">소프트 키보드 전환 키 바인딩</string>
+    <string name="bind_key_button">소프트 키보드 전환 단축키 바인딩</string>
     <string name="raise_desktop_for_soft_keyboard">소프트 키보드가 열리면 데스크톱 올리기</string>
     <string name="raise_desktop_for_soft_keyboard_hint">이 옵션을 켜면 데스크톱 화면이 줄어들고 위로 이동하여 입력 중인 내용을 볼 수 있습니다.</string>
     <string name="listening_countdown">키 입력 대기 중… (%1$d초)</string>
+    <string name="key_binding_release">키를 놓아 저장</string>
     <string name="status_current_none">현재: 없음</string>
     <string name="status_current">현재: %1$s</string>
     <string name="status_current_no_scancode">현재: %1$s — 이 키는 스캔 코드를 보고하지 않아 몰입 모드에서 사용할 수 없습니다. 볼륨 업과 같은 하드웨어 키를 바인딩하세요.</string>
     <string name="keycode_unknown">키코드 %1$d</string>
+    <string name="immersive_status_keycode">키코드 %1$d</string>
     <string name="scancode_unknown">스캔 코드 %1$d</string>
     <!-- Immersive mode -->
     <string name="section_immersive">몰입 모드</string>
@@ -278,9 +280,6 @@
     <string name="hud_group_detach">빼기</string>
     <string name="hud_group_drop_hint">여기에 키를 놓으세요</string>
     <string name="hud_group_moved_in">키를 그룹으로 옮겼습니다</string>
-    <string name="hud_group_detached">키를 그룹에서 빼냈습니다</string>
-    <string name="hud_group_no_candidates">화면에 옮길 독립 키가 없습니다</string>
-    <string name="hud_group_move_in_title">그룹으로 키 옮기기</string>
     <string name="hud_overlay_add_widget_title">위젯 추가</string>
     <string name="hud_overlay_daemon_connected">데몬 연결됨</string>
     <string name="hud_overlay_daemon_offline">데몬 오프라인</string>
@@ -309,7 +308,6 @@
     <string name="hud_title_button_properties">버튼 속성</string>
     <string name="hud_properties_title">%1$s 속성</string>
     <string name="hud_dock_button_properties">독 버튼 속성</string>
-    <string name="hud_widget_button">버튼</string>
     <string name="hud_widget_super_gesture">SUPER 제스처</string>
     <string name="hud_widget_trackpoint">트랙포인트</string>
     <string name="hud_widget_touchpad">터치패드</string>

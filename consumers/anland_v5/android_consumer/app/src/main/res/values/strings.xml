@@ -30,7 +30,7 @@
     </string-array>
 
     <!-- Bind key -->
-    <string name="bind_key_button">Bind Soft Keyboard Toggle Key</string>
+    <string name="bind_key_button">Bind Soft Keyboard Shortcut</string>
     <string name="landscape_split_keyboard">Use split arc keyboard in landscape</string>
     <string name="landscape_split_keyboard_hint">Separates letter keys into left and right thumb clusters when the screen is landscape.</string>
     <string name="customize_keyboard_wings">Customize thumb wings…</string>
@@ -105,9 +105,6 @@
     <string name="hud_group_detach">Take out</string>
     <string name="hud_group_drop_hint">Drop keys here</string>
     <string name="hud_group_moved_in">Key moved into group</string>
-    <string name="hud_group_detached">Key taken out of group</string>
-    <string name="hud_group_no_candidates">No standalone keys on screen</string>
-    <string name="hud_group_move_in_title">Move key into group</string>
     <string name="hud_overlay_add_widget_title">Add Widget</string>
     <string name="hud_overlay_daemon_connected">DAEMON CONNECTED</string>
     <string name="hud_overlay_daemon_offline">DAEMON OFFLINE</string>
@@ -122,10 +119,12 @@
     <string name="hud_overlay_label_scroll">SCROLL</string>
     <string name="hud_overlay_label_dpad">D-PAD</string>
     <string name="listening_countdown">Listening… (%1$ds)</string>
+    <string name="key_binding_release">Release keys to save</string>
     <string name="status_current_none">Current: None</string>
     <string name="status_current">Current: %1$s</string>
     <string name="status_current_no_scancode">Current: %1$s — this key reports no scan code, so immersive mode cannot use it. Bind a hardware key such as Volume Up.</string>
     <string name="keycode_unknown">Keycode %1$d</string>
+    <string name="immersive_status_keycode">Keycode %1$d</string>
     <string name="scancode_unknown">Scan code %1$d</string>
 
     <!-- Immersive mode -->
@@ -136,7 +135,7 @@
     <string name="immersive_hud_touch_hint">Keeps the on-screen HUD keys, d-pad and touchpad working while the panel is grabbed. Turn it off to send every touch straight to the desktop, leaving the HUD display-only.</string>
     <string name="immersive_oplus_refresh_rate_switch">Keep OnePlus refresh rate fixed</string>
     <string name="immersive_oplus_refresh_rate_hint">Prevents refresh-rate drops on some OnePlus devices when input events are not received.</string>
-    <string name="bind_immersive_key_button">Bind Immersive Mode Key</string>
+    <string name="bind_immersive_key_button">Bind Immersive Shortcut</string>
     <string name="immersive_exited">Immersive mode off</string>
     <string name="immersive_no_scancode">Bind a key for immersive mode first</string>
     <string name="immersive_failed">Could not start immersive mode: root was denied or is unavailable</string>
@@ -326,7 +325,6 @@
     <string name="hud_title_button_properties">BUTTON PROPERTIES</string>
     <string name="hud_properties_title">%1$s PROPERTIES</string>
     <string name="hud_dock_button_properties">DOCK BUTTON PROPERTIES</string>
-    <string name="hud_widget_button">BUTTON</string>
     <string name="hud_widget_super_gesture">SUPER GESTURE</string>
     <string name="hud_widget_trackpoint">TRACKPOINT</string>
     <string name="hud_widget_touchpad">TOUCHPAD</string>
@@ -408,4 +406,23 @@
     <string name="hud_long_press_delay">Hold time (ms)</string>
     <string name="hud_long_press_hint">Send on release suppresses the main action after a long press. In immediate mode, the main action has already been sent.</string>
     <string name="hud_resize_panel">Drag to resize the properties panel</string>
+
+    <!-- The app selects the mode; KDE follows the reported buffer format. -->
+    <string name="hdr_switch">10-bit HDR (experimental)</string>
+    <string name="hdr_hint">For HDR10 displays and updated KDE, GNOME, Hyprland, Gamescope, or Denial backends. The backend follows this switch when the desktop reconnects. After changing the switch, close and reopen the desktop window; existing windows keep their mode. Fixed BT.2020/PQ output with a 1000-nit peak. Use the adjacent brightness button to adjust SDR reference white live. No automatic SDR fallback or HDR metadata negotiation.</string>
+    <string name="hdr_error_title">HDR connection refused</string>
+    <string name="hdr_error_unsupported">The current display mode does not report HDR10/PQ support. This window has stopped without falling back to SDR. To use SDR, close the desktop window, turn off this setting, and reopen it. Supported backends follow automatically.</string>
+    <string name="hdr_error_surface">Android could not configure or retain a 10-bit BT.2020/PQ surface. This window has stopped without falling back to SDR. Check the Anland log for the buffer format or surface error. To use SDR, close the desktop window, turn off this setting, and reopen it. Supported backends follow automatically.</string>
+    <string name="hdr_brightness_button">Brightness · %1$d nit</string>
+    <string name="hdr_brightness_accessibility">HDR SDR reference white: %1$d nit. Adjust brightness</string>
+    <string name="hdr_brightness_title">HDR desktop brightness</string>
+    <string name="hdr_brightness_hint">Adjust SDR reference white from 80 to 500 nit (default 203). Try 300 or 400 nit if the whole desktop looks dim. Changes are saved and applied immediately to open HDR windows with updated backends. This changes desktop brightness, not black level or the 1000-nit HDR peak.</string>
+    <string name="hdr_brightness_value">%1$d nit</string>
+    <string name="hdr_brightness_reset">Restore 203 nit</string>
+    <string name="hdr_content_gain_button">HDR brightness gain · %1$.2f×</string>
+    <string name="hdr_content_gain_accessibility">HDR content brightness gain: %1$.2f times. Adjust gain</string>
+    <string name="hdr_content_gain_title">HDR brightness gain</string>
+    <string name="hdr_content_gain_hint">Adjust native HDR content from 0.5× to 2.0× (default 1.0×). SDR desktop brightness stays unchanged. Changes are saved and applied immediately with updated backends. Highlights remain limited by the output peak; menus or subtitles drawn inside an HDR surface also change.</string>
+    <string name="hdr_content_gain_value">%1$.2f×</string>
+    <string name="hdr_content_gain_reset">Restore 1.0×</string>
 </resources>

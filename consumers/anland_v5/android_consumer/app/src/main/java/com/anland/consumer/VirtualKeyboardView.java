@@ -313,7 +313,6 @@ public class VirtualKeyboardView extends View {
 
     private boolean mIsSplitArcMode = false;
     private float mAnimProgress = 1.0f;
-    private boolean mIsAnimating = false;
     private ValueAnimator mAnimator = null;
 
     private final Handler mLongPressHandler = new Handler(Looper.getMainLooper());
@@ -465,7 +464,6 @@ public class VirtualKeyboardView extends View {
         setRotation(0f);
         setVisibility(VISIBLE);
         bringToFront();
-        mIsAnimating = true;
         mAnimProgress = 0f;
 
         mAnimator = ValueAnimator.ofFloat(0f, 1f);
@@ -478,7 +476,6 @@ public class VirtualKeyboardView extends View {
         mAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
-                mIsAnimating = false;
                 mAnimProgress = 1f;
                 invalidate();
             }
@@ -488,7 +485,6 @@ public class VirtualKeyboardView extends View {
 
     public void hideWithAnimation(Runnable onComplete) {
         cancelAnimation();
-        mIsAnimating = true;
         mAnimator = ValueAnimator.ofFloat(mAnimProgress, 0f);
         mAnimator.setDuration(150);
         mAnimator.setInterpolator(new AccelerateInterpolator(1.5f));
@@ -499,7 +495,6 @@ public class VirtualKeyboardView extends View {
         mAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
-                mIsAnimating = false;
                 mAnimProgress = 0f;
                 setVisibility(GONE);
                 if (onComplete != null) onComplete.run();
@@ -783,14 +778,14 @@ public class VirtualKeyboardView extends View {
 
     private void initTopWings() {
         mWingKeys.clear();
-        // Nut phu nho gon 3x2 moi ben (12 nut), ha thap gan phim chu.
-        // Cánh trái: các phím bổ trợ & thao tác nhanh
+        // Compact 3x2 wing keys on each side (12 keys total), positioned close to letter keys.
+        // Left wing: modifiers & shortcuts
         String[] leftDefLabels = {"ESC", "TAB", "CTRL", "ALT", "SHIFT", "SUPER"};
         int[] leftDefCodes = {KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_TAB,
                 KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT,
                 KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_META_LEFT};
 
-        // Cánh phải: cụm phím điều hướng chữ T ngược chuẩn (Inverted-T) + Del/PgUp
+        // Right wing: inverted-T navigation cluster + Del/PgUp
         String[] rightDefLabels = {"DEL", "▲", "PGUP", "◀", "▼", "▶"};
         int[] rightDefCodes = {KeyEvent.KEYCODE_FORWARD_DEL, KeyEvent.KEYCODE_DPAD_UP,
                 KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_DPAD_LEFT,
@@ -2500,10 +2495,6 @@ public class VirtualKeyboardView extends View {
     }
 
     /** Resting vs. active (pressed / latched) tonal fill, per MD3. */
-    private int resolveKeyBg(KeyData k) {
-        return resolveKeyBg(k, false);
-    }
-
     private int resolveKeyBg(KeyData k, boolean actionKey) {
         if (k.pressed || k.modActive) return MD_PRIMARY_CONTAINER;
         return actionKey ? MD_SURFACE_CONTAINER : MD_SURFACE_CONTAINER_HIGH;

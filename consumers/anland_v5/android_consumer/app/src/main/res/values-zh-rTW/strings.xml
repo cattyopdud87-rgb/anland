@@ -26,14 +26,16 @@
         <item>強制豎屏</item>
     </string-array>
     <!-- Bind key -->
-    <string name="bind_key_button">綁定虛擬鍵盤切換鍵</string>
+    <string name="bind_key_button">綁定虛擬鍵盤切換鍵或組合鍵</string>
     <string name="raise_desktop_for_soft_keyboard">虛擬鍵盤彈出時抬起桌面</string>
     <string name="raise_desktop_for_soft_keyboard_hint">開啟後，桌面會縮小並向上移動，能看清正在輸入的內容。</string>
     <string name="listening_countdown">正在監聽…（%1$d 秒）</string>
+    <string name="key_binding_release">放開按鍵以儲存</string>
     <string name="status_current_none">目前：無</string>
     <string name="status_current">目前：%1$s</string>
     <string name="status_current_no_scancode">目前：%1$s —— 該按鍵不回報掃描碼，沉浸模式無法使用它。請改綁音量+等硬體按鍵。</string>
     <string name="keycode_unknown">鍵碼 %1$d</string>
+    <string name="immersive_status_keycode">鍵碼%1$d</string>
     <string name="scancode_unknown">掃描碼 %1$d</string>
     <!-- Immersive mode -->
     <string name="section_immersive">沉浸模式</string>
@@ -41,7 +43,7 @@
     <string name="immersive_hint">將觸控、鍵盤和滑鼠等輸入直接交給 Linux 桌面，避免 Android 系統手勢干擾。需要 root。在下方設定切換按鍵：按一次進入，再按一次離開；切換到其他應用程式時會自動離開。</string>
     <string name="immersive_hud_touch_switch">沉浸模式下可觸控 HUD 控制項</string>
     <string name="immersive_hud_touch_hint">開啟後，觸控螢幕被獨佔期間 HUD 按鍵、方向鍵、觸控板仍可使用；關閉則所有觸控直接交給桌面，HUD 只顯示不回應。</string>
-    <string name="bind_immersive_key_button">綁定沉浸模式按鍵</string>
+    <string name="bind_immersive_key_button">綁定沉浸模式按鍵或組合鍵</string>
     <string name="immersive_exited">已離開沉浸模式</string>
     <string name="immersive_no_scancode">請先為沉浸模式綁定按鍵</string>
     <string name="immersive_failed">無法進入沉浸模式：root 遭拒或無法使用</string>
@@ -264,9 +266,6 @@
     <string name="hud_group_detach">移出</string>
     <string name="hud_group_drop_hint">把按鍵拖到這裡</string>
     <string name="hud_group_moved_in">已移入聚合</string>
-    <string name="hud_group_detached">已移出聚合</string>
-    <string name="hud_group_no_candidates">螢幕上沒有可移入的獨立按鍵</string>
-    <string name="hud_group_move_in_title">移入聚合</string>
     <string name="hud_overlay_add_widget_title">新增小工具</string>
     <string name="hud_overlay_daemon_connected">守護程序已連線</string>
     <string name="hud_overlay_daemon_offline">守護程序離線</string>
@@ -309,7 +308,6 @@
     <string name="hud_title_button_properties">按鈕屬性</string>
     <string name="hud_properties_title">%1$s 屬性</string>
     <string name="hud_dock_button_properties">停駐按鈕屬性</string>
-    <string name="hud_widget_button">按鈕</string>
     <string name="hud_widget_super_gesture">SUPER 手勢</string>
     <string name="hud_widget_trackpoint">軌跡點</string>
     <string name="hud_widget_touchpad">觸控板</string>
@@ -381,4 +379,23 @@
     <string name="hud_long_press_delay">長按時間（毫秒）</string>
     <string name="hud_long_press_hint">放開時送出模式下，長按觸發後不會送出主要動作；立即送出模式下，主要動作已經送出。</string>
     <string name="hud_resize_panel">拖曳以調整屬性面板大小</string>
+
+    <!-- The app selects the mode; KDE follows the reported buffer format. -->
+    <string name="hdr_switch">10bit HDR（實驗性）</string>
+    <string name="hdr_hint">僅供支援 HDR10 的螢幕及更新後的 KDE、GNOME、Hyprland、Gamescope、Denial 後端使用。後端在重新連線時自動跟隨此開關。修改開關後請關閉並重新開啟桌面視窗；現有視窗保持原模式。固定輸出 BT.2020/PQ，峰值 1000 nit。旁邊的亮度按鈕可即時調整 SDR 參考白。不自動降級至 SDR，不協商 HDR 中繼資料。</string>
+    <string name="hdr_error_title">HDR 連線遭拒</string>
+    <string name="hdr_error_unsupported">目前顯示模式未報告 HDR10/PQ 支援。此視窗已停止連線，未降級至 SDR。使用 SDR 時，請關閉桌面視窗、關閉此選項，再重新開啟視窗；受支援的後端會自動跟隨。</string>
+    <string name="hdr_error_surface">Android 無法設定或保持 10bit BT.2020/PQ Surface。此視窗已停止連線，未降級至 SDR。請在 Anland 記錄中檢查緩衝區格式或 Surface 錯誤。使用 SDR 時，請關閉桌面視窗、關閉此選項，再重新開啟視窗；受支援的後端會自動跟隨。</string>
+    <string name="hdr_brightness_button">亮度 · %1$d nit</string>
+    <string name="hdr_brightness_accessibility">HDR SDR 參考白：%1$d nit，調整亮度</string>
+    <string name="hdr_brightness_title">HDR 桌面亮度</string>
+    <string name="hdr_brightness_hint">調整 SDR 參考白，範圍 80～500 nit，預設 203。整個桌面偏暗時可試試 300 或 400 nit。修改會自動儲存，並即時套用到使用新版後端的已開啟 HDR 視窗。這會調整桌面亮度，不改變黑位或 1000 nit 的 HDR 峰值。</string>
+    <string name="hdr_brightness_value">%1$d nit</string>
+    <string name="hdr_brightness_reset">恢復 203 nit</string>
+    <string name="hdr_content_gain_button">HDR 亮度增益 · %1$.2f×</string>
+    <string name="hdr_content_gain_accessibility">HDR 內容亮度增益：%1$.2f 倍，調整增益</string>
+    <string name="hdr_content_gain_title">HDR 亮度增益</string>
+    <string name="hdr_content_gain_hint">調整原生 HDR 內容亮度，範圍 0.5×～2.0×，預設 1.0×。SDR 桌面亮度保持不變。修改會自動儲存，並在更新後的後端中即時生效。高光仍受輸出峰值限制；應用程式繪製在同一 HDR 畫面內的選單、字幕也會一起變化。</string>
+    <string name="hdr_content_gain_value">%1$.2f×</string>
+    <string name="hdr_content_gain_reset">恢復 1.0×</string>
 </resources>

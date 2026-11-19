@@ -26,7 +26,7 @@
         <item>强制竖屏</item>
     </string-array>
     <!-- Bind key -->
-    <string name="bind_key_button">绑定软键盘切换键</string>
+    <string name="bind_key_button">绑定软键盘切换键或组合键</string>
     <string name="landscape_split_keyboard">横屏使用分体弧形键盘</string>
     <string name="landscape_split_keyboard_hint">横屏时将字母键分到左右拇指区域。</string>
     <string name="customize_keyboard_wings">自定义两侧翼键…</string>
@@ -101,9 +101,6 @@
     <string name="hud_group_detach">移出</string>
     <string name="hud_group_drop_hint">把按键拖到这里</string>
     <string name="hud_group_moved_in">已移入聚合</string>
-    <string name="hud_group_detached">已移出聚合</string>
-    <string name="hud_group_no_candidates">屏幕上没有可移入的独立按键</string>
-    <string name="hud_group_move_in_title">移入聚合</string>
     <string name="hud_overlay_add_widget_title">添加控件</string>
     <string name="hud_overlay_daemon_connected">守护进程已连接</string>
     <string name="hud_overlay_daemon_offline">守护进程未连接</string>
@@ -118,10 +115,12 @@
     <string name="hud_overlay_label_scroll">滚动</string>
     <string name="hud_overlay_label_dpad">方向键</string>
     <string name="listening_countdown">正在监听…（%1$d 秒）</string>
+    <string name="key_binding_release">松开按键以保存</string>
     <string name="status_current_none">当前：无</string>
     <string name="status_current">当前：%1$s</string>
     <string name="status_current_no_scancode">当前：%1$s —— 该按键不上报扫描码，沉浸模式无法使用它。请改绑音量+等硬件按键。</string>
     <string name="keycode_unknown">键码 %1$d</string>
+    <string name="immersive_status_keycode">键码%1$d</string>
     <string name="scancode_unknown">扫描码 %1$d</string>
     <!-- Immersive mode -->
     <string name="section_immersive">沉浸模式</string>
@@ -131,7 +130,7 @@
     <string name="immersive_hud_touch_hint">开启后，触摸屏被独占期间 HUD 按键、方向键、触摸板仍然可用；关闭则所有触摸直接交给桌面，HUD 只显示不响应。</string>
     <string name="immersive_oplus_refresh_rate_switch">固定 OnePlus 高刷新率</string>
     <string name="immersive_oplus_refresh_rate_hint">解决某些 OnePlus 设备接收不到输入事件导致的刷新率降低</string>
-    <string name="bind_immersive_key_button">绑定沉浸模式按键</string>
+    <string name="bind_immersive_key_button">绑定沉浸模式按键或组合键</string>
     <string name="immersive_exited">已退出沉浸模式</string>
     <string name="immersive_no_scancode">请先为沉浸模式绑定按键</string>
     <string name="immersive_failed">无法进入沉浸模式：root 被拒绝或不可用</string>
@@ -310,7 +309,6 @@
     <string name="hud_title_button_properties">按钮属性</string>
     <string name="hud_properties_title">%1$s 属性</string>
     <string name="hud_dock_button_properties">扩展栏按钮属性</string>
-    <string name="hud_widget_button">按钮</string>
     <string name="hud_widget_super_gesture">超级手势</string>
     <string name="hud_widget_trackpoint">指点杆</string>
     <string name="hud_widget_touchpad">触摸板</string>
@@ -392,4 +390,23 @@
     <string name="hud_long_press_delay">长按时间（毫秒）</string>
     <string name="hud_long_press_hint">松手发送模式下，长按触发后不会发送主动作；立即发送模式下，主动作已经发送。</string>
     <string name="hud_resize_panel">拖动以调整属性面板大小</string>
+
+    <!-- The app selects the mode; KDE follows the reported buffer format. -->
+    <string name="hdr_switch">10bit HDR（实验性）</string>
+    <string name="hdr_hint">仅供支持 HDR10 的屏幕及更新后的 KDE、GNOME、Hyprland、Gamescope、Denial 后端使用。后端在重新连接时自动跟随此开关。修改开关后请关闭并重新打开桌面窗口；现有窗口保持原模式。固定输出 BT.2020/PQ，峰值 1000 nit。旁边的亮度按钮可即时调节 SDR 参考白。不自动降级到 SDR，不协商 HDR 元数据。</string>
+    <string name="hdr_error_title">HDR 连接被拒绝</string>
+    <string name="hdr_error_unsupported">当前显示模式未报告 HDR10/PQ 支持。此窗口已停止连接，未降级到 SDR。使用 SDR 时，请关闭桌面窗口、关闭此选项，再重新打开窗口；受支持的后端会自动跟随。</string>
+    <string name="hdr_error_surface">Android 无法配置或保持 10bit BT.2020/PQ Surface。此窗口已停止连接，未降级到 SDR。请在 Anland 日志中检查缓冲区格式或 Surface 错误。使用 SDR 时，请关闭桌面窗口、关闭此选项，再重新打开窗口；受支持的后端会自动跟随。</string>
+    <string name="hdr_brightness_button">亮度 · %1$d nit</string>
+    <string name="hdr_brightness_accessibility">HDR SDR 参考白：%1$d nit，调节亮度</string>
+    <string name="hdr_brightness_title">HDR 桌面亮度</string>
+    <string name="hdr_brightness_hint">调节 SDR 参考白，范围 80～500 nit，默认 203。整个桌面偏暗时可试试 300 或 400 nit。修改会自动保存，并即时应用到使用新版后端的已打开 HDR 窗口。这会调整桌面亮度，不改变黑位或 1000 nit 的 HDR 峰值。</string>
+    <string name="hdr_brightness_value">%1$d nit</string>
+    <string name="hdr_brightness_reset">恢复 203 nit</string>
+    <string name="hdr_content_gain_button">HDR 亮度增益 · %1$.2f×</string>
+    <string name="hdr_content_gain_accessibility">HDR 内容亮度增益：%1$.2f 倍，调节增益</string>
+    <string name="hdr_content_gain_title">HDR 亮度增益</string>
+    <string name="hdr_content_gain_hint">调节原生 HDR 内容亮度，范围 0.5×～2.0×，默认 1.0×。SDR 桌面亮度保持不变。修改会自动保存，并在更新后的后端中即时生效。高光仍受输出峰值限制；应用绘制在同一 HDR 画面内的菜单、字幕也会一起变化。</string>
+    <string name="hdr_content_gain_value">%1$.2f×</string>
+    <string name="hdr_content_gain_reset">恢复 1.0×</string>
 </resources>

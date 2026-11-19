@@ -1,8 +1,10 @@
 {
   "sources": {
-    "mutter": { "method": "dnf-source" }
+    "mutter": {
+      "method": "dnf-source"
+    }
   },
   "patches": {
-    "mutter.patch": "6dd4973d46e82b8644576f9ecb9570364fb06c393ea085406e30c71181d8c5fa"
+    "mutter.patch": "5f9a30dcf97dac7bb5f6745dd16e19b040366eb2d57caf26b2ea600e013a4da2"
   }
 }

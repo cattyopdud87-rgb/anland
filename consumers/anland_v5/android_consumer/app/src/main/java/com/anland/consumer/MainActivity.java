@@ -51,6 +51,11 @@ public class MainActivity extends Activity
 
     private SurfaceView surfaceView;
     private boolean surfaceReady = false;
+    // Snapshotted for this window: changing the setting must never switch only
+    // the Android end while its paired KDE compositor is still running.
+    private boolean hdrEnabled;
+    private boolean displayFailed;
+    static final String KEY_EXPERIMENTAL_HDR = "experimental_hdr";
     // System-clipboard bridge; also the target for the native clipboard callbacks.
     private Clipboard clipboard;
     private static final String PREFS_NAME = "anland_settings";
@@ -64,7 +69,10 @@ public class MainActivity extends Activity
     private long lastReconnectTimeMs;
     private int connectedW;
     private int connectedH;
-    private static final String KEY_BOUND_KEYCODE = "bound_keycode";
+    static final String KEY_BOUND_KEYCODE = "bound_keycode";
+    static final String KEY_BOUND_SCANCODE = "bound_scancode";
+    static final String KEY_BOUND_CHORD = "bound_chord";
+    static final String KEY_BOUND_CHORD_LABEL = "bound_chord_label";
     private static final String KEY_SOCKET_PATH = "socket_path";
     private static final String KEY_USE_ROOT = "use_root";
     static final String KEY_TOPAPP = "topapp_scheduling";
@@ -90,6 +98,23 @@ public class MainActivity extends Activity
     static final String EXTRA_WINDOW_NAME = "window_name";
     // This window's own native transport instance (its own consumer_state handle).
     private Native mNative;
+    // Keep the listener strongly referenced for this window's entire lifetime.
+    // Paused HDR windows must also receive changes made from Settings.
+    private final SharedPreferences.OnSharedPreferenceChangeListener hdrBrightnessListener =
+            (prefs, key) -> {
+                if (HdrBrightness.KEY_SDR_WHITE_NITS.equals(key)
+                        || HdrContentGain.KEY_PERCENT.equals(key))
+                    applyHdrBrightness(prefs);
+            };
+
+    private void applyHdrBrightness(SharedPreferences prefs) {
+        if (hdrEnabled && mNative != null) {
+            mNative.setHdrSdrWhiteNits(HdrBrightness.clamp(prefs.getInt(
+                    HdrBrightness.KEY_SDR_WHITE_NITS, HdrBrightness.DEFAULT_NITS)));
+            mNative.setHdrContentGainPercent(HdrContentGain.clamp(prefs.getInt(
+                    HdrContentGain.KEY_PERCENT, HdrContentGain.DEFAULT_PERCENT)));
+        }
+    }
     private final TabletInput tabletInput = new TabletInput(frame -> {
         if (mNative != null) {
             mNative.sendTabletSample(frame.toolId, frame.toolType, frame.capabilities,
@@ -166,7 +191,6 @@ public class MainActivity extends Activity
     // Cached "immersive_hud_touch" preference: read once per session instead of
     // once per evdev frame.
     private boolean immersiveHudTouch = ImmersiveMode.DEFAULT_HUD_TOUCH;
-    private float mDensity = 1f;
     // Layout JSON the current bar was built from; used to detect edits on resume.
 
     public static MainActivity sInstance;
@@ -292,6 +316,8 @@ public class MainActivity extends Activity
                 if (d != null && d.getDisplayId() == displayId) {
                     pushRefreshRate();
                     updateDisplayRotation();
+                    if (hdrEnabled && !supportsHdr10())
+                        onDisplayError(1);
                 }
             }
         };
@@ -346,6 +372,7 @@ public class MainActivity extends Activity
             lifecycleHandler.postDelayed(delayedFocusStop, FOCUS_STOP_DELAY_MS);
         }
         if (!hasFocus) {
+            softKeyboardChord.clearHeld();
             cancelOverlayTouches();
             tabletInput.cancelAll(SystemClock.uptimeMillis());
             releaseAllMouseButtons();
@@ -369,6 +396,44 @@ public class MainActivity extends Activity
             mNative.setRefreshRate(d.getRefreshRate());
     }
 
+    @SuppressWarnings("deprecation")
+    private boolean supportsHdr10() {
+        Display display = getDisplay();
+        if (display == null)
+            return false;
+        int[] types;
+        if (Build.VERSION.SDK_INT >= 34) {
+            types = display.getMode().getSupportedHdrTypes();
+        } else {
+            Display.HdrCapabilities caps = display.getHdrCapabilities();
+            types = caps == null ? new int[0] : caps.getSupportedHdrTypes();
+        }
+        for (int type : types) {
+            if (type == Display.HdrCapabilities.HDR_TYPE_HDR10)
+                return true;
+        }
+        return false;
+    }
+
+    // Called by the native render thread. A failed HDR request is terminal for
+    // this window; falling back independently would mislabel KDE's PQ pixels.
+    public void onDisplayError(int error) {
+        lifecycleHandler.post(() -> {
+            if (displayFailed || isFinishing() || isDestroyed())
+                return;
+            displayFailed = true;
+            Log.e(TAG, "HDR display connection rejected: " + error);
+            stopNativePipeline();
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(R.string.hdr_error_title)
+                    .setMessage(error == 1 ? R.string.hdr_error_unsupported
+                                          : R.string.hdr_error_surface)
+                    .setCancelable(false)
+                    .setPositiveButton(android.R.string.ok, (dialog, which) -> finish())
+                    .show();
+        });
+    }
+
     // Push the current connection settings (socket path / root mode) to native
     // before (re)connecting. The root helper is the executable bundled in the
     // app's native lib dir; the bridge is a unix socket in our cache dir that
@@ -386,7 +451,8 @@ public class MainActivity extends Activity
         String topAppStops = prefs.getString(KEY_TOPAPP_STOPS, "").trim();
         String topAppPath = getApplicationInfo().nativeLibraryDir + "/libsettopapp.so";
         mNative.configure(sock, useRoot, helperPath, bridgePath, topApp, topAppPath,
-                topAppMode, topAppStops);
+                topAppMode, topAppStops, hdrEnabled, supportsHdr10());
+        applyHdrBrightness(prefs);
         int customW = prefs.getInt("custom_width", 0);
         int customH = prefs.getInt("custom_height", 0);
         customScreenWidth = prefs.getInt("custom_width", 0);
@@ -411,6 +477,12 @@ public class MainActivity extends Activity
     // socket is still a live socket. The daemon can go down after launch, so
     // re-check on every (re)connect; if it is gone, report it and exit the window.
     private void startNative(android.view.Surface surface) {
+        if (displayFailed)
+            return;
+        if (hdrEnabled && !supportsHdr10()) {
+            onDisplayError(1);
+            return;
+        }
         if (!isSocketFile(resolveSocketPath())) {
             android.widget.Toast.makeText(this, "Deamon Down",
                     android.widget.Toast.LENGTH_SHORT).show();
@@ -444,6 +516,8 @@ public class MainActivity extends Activity
     }
 
     private void scheduleReconnect(SurfaceHolder holder) {
+        if (displayFailed)
+            return;
         final android.view.Surface surface = holder.getSurface();
         if (surface == null || !surface.isValid())
             return;
@@ -459,7 +533,7 @@ public class MainActivity extends Activity
     }
 
     private void reconnectNow(android.view.Surface surface) {
-        if (!surfaceReady || mNative == null || surface == null || !surface.isValid())
+        if (displayFailed || !surfaceReady || mNative == null || surface == null || !surface.isValid())
             return;
         long now = android.os.SystemClock.uptimeMillis();
         if (viewWidth == connectedW && viewHeight == connectedH
@@ -682,6 +756,11 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        hdrEnabled = savedInstanceState != null
+                ? savedInstanceState.getBoolean(KEY_EXPERIMENTAL_HDR, false)
+                : getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                        .getBoolean(KEY_EXPERIMENTAL_HDR, false);
+
         setupMediaAudio();
         applyOrientation();
 
@@ -728,6 +807,9 @@ public class MainActivity extends Activity
 
         // Each window owns its own native pipeline.
         mNative = new Native();
+        SharedPreferences hdrPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        hdrPrefs.registerOnSharedPreferenceChangeListener(hdrBrightnessListener);
+        applyHdrBrightness(hdrPrefs);
         setTaskDescription(new ActivityManager.TaskDescription(mWindowName));
 
         clipboard = new Clipboard(this, mNative);
@@ -824,7 +906,6 @@ public class MainActivity extends Activity
         root.addView(systemIme.getInputView(), new FrameLayout.LayoutParams(1, 1));
 
         mRoot = root;
-        mDensity = getResources().getDisplayMetrics().density;
         mKeyboardFloating = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getBoolean(KEY_KEYBOARD_FLOATING, false);
 
@@ -1909,6 +1990,8 @@ public class MainActivity extends Activity
         if (dm != null)
             dm.registerDisplayListener(displayListener, null);
         updateDisplayRotation();
+        if (hdrEnabled && !supportsHdr10())
+            onDisplayError(1);
         // Bring the camera service up (or confirm it disabled) BEFORE nativeStart, so
         // the render thread's do_connect() sees a settled camera_service_is_ready()
         // and registers SERVICE_TYPE_CAMERA on the very first connect rather than a
@@ -1954,6 +2037,12 @@ public class MainActivity extends Activity
 
         // The socket pref may have been edited in Settings; keep our dedup key current.
         registerWindow();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(KEY_EXPERIMENTAL_HDR, hdrEnabled);
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -2004,6 +2093,8 @@ public class MainActivity extends Activity
     @Override
     protected void onDestroy() {
         Log.i(TAG, "onDestroy: releasing native and immersive input");
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(hdrBrightnessListener);
         cancelPendingReconnect();
         lifecycleHandler.removeCallbacks(delayedFocusStop);
         lifecycleHandler.removeCallbacks(delayedSurfaceStop);
@@ -2171,6 +2262,8 @@ public class MainActivity extends Activity
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         updateDisplayRotation();
+        if (hdrEnabled && !supportsHdr10())
+            onDisplayError(1);
         if (mRoot != null) {
             mRoot.post(() -> {
                 WindowInsets insets = mRoot.getRootWindowInsets();
@@ -2200,11 +2293,7 @@ public class MainActivity extends Activity
     // focused window relayouts into the upper region instead of hiding behind
     // the keyboard. Reset when the IME goes away.
     private void applyImeInset(WindowInsets insets) {
-        int newImeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom;
-        boolean imeVisible = newImeBottom > 0;
-        boolean wasImeVisible = mImeBottom > 0;
-    
-        mImeBottom = newImeBottom;
+        mImeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom;
         // The HUD is a floating layer: it deliberately does NOT follow the IME,
         // so its controls stay where the user placed them.
         if (mHudOverlay != null) {
@@ -2334,23 +2423,43 @@ public class MainActivity extends Activity
         }
     }
 
-    /**
-     * Handle the user-bound soft-keyboard toggle in every key dispatch path.
-     * Accessibility interception runs before the Activity, so keeping this in
-     * one helper keeps the setting consistent for both routes.
-     */
-    private boolean handleSoftKeyboardToggleKey(KeyEvent event) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        int boundKeycode = prefs.getInt(KEY_BOUND_KEYCODE, -1);
-        if (boundKeycode == -1 || event.getKeyCode() != boundKeycode)
-            return false;
+    private String softKeyboardChordPreference = "";
+    private KeyChord softKeyboardChord = KeyChord.parse("");
+    private final KeyPresses softKeyboardPresses = new KeyPresses();
 
-        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0)
-            systemIme.toggleSystemKeyboard();
-        // Consume both the press and release. Once the IME owns focus, allowing
-        // the release to continue through the normal dispatch path can send a
-        // stray key-up to Linux and leave its key state stuck.
-        return true;
+    private boolean updateSoftKeyboardShortcut(KeyEvent event) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String saved = prefs.getString(KEY_BOUND_CHORD, "");
+        if (!saved.equals(softKeyboardChordPreference)) {
+            softKeyboardChordPreference = saved;
+            softKeyboardChord = KeyChord.parse(saved);
+        }
+        if (softKeyboardChord.isBound())
+            return softKeyboardChord.update(event);
+        if (!KeyPresses.isFreshDown(event))
+            return false;
+        int scan = prefs.getInt(KEY_BOUND_SCANCODE, -1);
+        int code = prefs.getInt(KEY_BOUND_KEYCODE, -1);
+        return scan > 0 ? event.getScanCode() == scan : event.getKeyCode() == code;
+    }
+
+    private void toggleSoftKeyboard(KeyEvent event) {
+        softKeyboardPresses.add(event);
+        if (softKeyboardChord.isBound()) {
+            // The IME can take focus before Android delivers the prefix keys' UPs.
+            java.util.List<Long> held = new java.util.ArrayList<>(forwardedKeys.keySet());
+            for (int i = held.size() - 1; i >= 0; i--) {
+                long key = held.get(i);
+                if ((int) (key >> 32) != event.getDeviceId()
+                        || softKeyboardChord.keyBit((int) key) == 0)
+                    continue;
+                int evdev = forwardedKeys.remove(key);
+                softKeyboardPresses.add(key);
+                if (mNative != null && !forwardedKeys.containsValue(evdev))
+                    mNative.sendKey(1, evdev);
+            }
+        }
+        systemIme.toggleSystemKeyboard();
     }
 
     // Apply the screen-orientation preference (default / landscape / portrait).
@@ -2884,10 +2993,18 @@ public class MainActivity extends Activity
      * @return true when the event was consumed
      */
     private boolean handleSourceAwareKey(KeyEvent event) {
+        boolean softShortcut = updateSoftKeyboardShortcut(event);
+        boolean softTail = softKeyboardPresses.consumeTail(event);
         // First: the immersive toggle is the way out of a session that has taken
         // every input device, so nothing else may consume it.
         if (immersive != null && immersive.handleKey(event))
             return true;
+        if (softTail)
+            return true;
+        // Android can deliver the matching UP after a keyboard's grab began.
+        if (event.getAction() == KeyEvent.ACTION_UP
+                && forwardedKeys.containsKey(KeyPresses.identity(event)))
+            return false;
         InputDevice controller = event.getDevice();
         if (immersive != null && immersive.usesDirectControllers() && controller != null
                 && (controller.supportsSource(InputDevice.SOURCE_GAMEPAD)
@@ -2899,17 +3016,23 @@ public class MainActivity extends Activity
         // Swallow Android's duplicate KEYCODE_BACK so it does not release capture.
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && isMouseKeyEvent(event))
             return true;
-        if (handleSoftKeyboardToggleKey(event))
+        if (softShortcut) {
+            toggleSoftKeyboard(event);
             return true;
+        }
         // Discard Android events queued just before the helper's exclusive grab.
         return immersive != null && immersive.ownsGoldKeyboard()
                 && GoldKeyboard.matches(event.getDevice());
     }
 
     @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        // The focused EditText can consume keys while the soft keyboard is open.
+        return handleSourceAwareKey(event) || super.dispatchKeyEvent(event);
+    }
+
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (handleSourceAwareKey(event))
-            return true;
         // Before the repeat swallow: each repeat must become one more tap, so
         // held-key auto-repeat still works (see handleImeDelTap).
         if (handleImeDelTap(event))
@@ -3000,8 +3123,8 @@ public class MainActivity extends Activity
      * still held when the window went away stayed held on the desktop -- until
      * the user pressed and released that same key again.
      */
-    private final java.util.LinkedHashSet<Integer> forwardedKeys =
-            new java.util.LinkedHashSet<>();
+    private final java.util.LinkedHashMap<Long, Integer> forwardedKeys =
+            new java.util.LinkedHashMap<>();
 
     /**
      * Releases every key this window forwarded and never saw released, in
@@ -3011,10 +3134,13 @@ public class MainActivity extends Activity
      * into, for the same reason the mouse buttons are.
      */
     private void releaseAllForwardedKeys() {
+        softKeyboardChord.clearHeld();
+        softKeyboardPresses.clear();
         if (forwardedKeys.isEmpty())
             return;
         if (mNative != null) {
-            java.util.List<Integer> held = new java.util.ArrayList<>(forwardedKeys);
+            java.util.List<Integer> held = new java.util.ArrayList<>(
+                    new java.util.LinkedHashSet<>(forwardedKeys.values()));
             for (int index = held.size() - 1; index >= 0; index--)
                 mNative.sendKey(1, held.get(index));
         }
@@ -3026,11 +3152,17 @@ public class MainActivity extends Activity
                 convertBackToEscape);
         if (evdev < 0)
             return false;
-        if (event.getAction() == KeyEvent.ACTION_DOWN)
-            forwardedKeys.add(evdev);
-        else
-            forwardedKeys.remove(evdev);
-        mNative.sendKey(event.getAction() == KeyEvent.ACTION_DOWN ? 0 : 1, evdev);
+        long key = KeyPresses.identity(event);
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            boolean alreadyHeld = forwardedKeys.containsValue(evdev);
+            forwardedKeys.put(key, evdev);
+            if (!alreadyHeld)
+                mNative.sendKey(0, evdev);
+        } else {
+            Integer downCode = forwardedKeys.remove(key);
+            if (downCode != null && !forwardedKeys.containsValue(downCode))
+                mNative.sendKey(1, downCode);
+        }
         return true;
     }
 
@@ -3041,8 +3173,6 @@ public class MainActivity extends Activity
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (handleSourceAwareKey(event))
-            return true;
         if (handleImeDelTap(event))
             return true;
         forwardKeyToLinux(event);

@@ -46,6 +46,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.List;
@@ -56,7 +57,6 @@ import java.util.TreeSet;
 public class SettingsActivity extends Activity {
     private static final String TAG = "AnlandSettings";
     private static final String PREFS_NAME = "anland_settings";
-    private static final String KEY_BOUND_KEYCODE = "bound_keycode";
     private static final String KEY_SOCKET_PATH = "socket_path";
     private static final String KEY_USE_ROOT = "use_root";
     private static final String KEY_MIC_ENABLED = "mic_enabled";
@@ -77,8 +77,6 @@ public class SettingsActivity extends Activity {
             VirtualKeyboardView.KEY_KEYBOARD_HANDEDNESS;
     private static final String KEY_KEYBOARD_THEME = VirtualKeyboardView.KEY_KEYBOARD_THEME;
     private static final String KEY_HAPTIC_FEEDBACK = VirtualKeyboardView.KEY_HAPTIC_FEEDBACK;
-    private static final String KEY_SPLIT_ARC_TOP_WINGS =
-            VirtualKeyboardView.KEY_SPLIT_ARC_TOP_WINGS;
     private static final String KEY_USE_HUD_OVERLAY = "use_hud_overlay";
     private static final String KEY_HUD_LAYOUT_PROFILE = "hud_layout_profile_v2";
     private static final String KEY_NOTIFICATION_ENABLED = "settings_notification";
@@ -143,6 +141,7 @@ public class SettingsActivity extends Activity {
     // The key-binding row currently counting down, if any: it gets the next key
     // press. The rows themselves live in the page's view hierarchy.
     private KeyBinding listeningBinding;
+    private final KeyPresses bindingPresses = new KeyPresses();
 
     // Custom extra-keys layout editor (JSON), and the SAF file-picker request code.
     private static final int REQ_EXPORT_HUD_LAYOUT = 2002;
@@ -350,6 +349,7 @@ public class SettingsActivity extends Activity {
         currentPage = Page.RESOLUTION;
         LinearLayout root = newPage(R.string.section_resolution);
         addResolutionSection(root);
+        addHdrSection(root);
         setContent(root);
     }
 
@@ -790,7 +790,7 @@ public class SettingsActivity extends Activity {
     private void buildVirtualKeyboardSection(LinearLayout root) {
         addSectionHeader(root, R.string.section_virtual_keyboard, 0);
         // Constructing the row appends it to `root`.
-        new KeyBinding(root, KEY_BOUND_KEYCODE, null, R.string.bind_key_button);
+        new KeyBinding(root, false, R.string.bind_key_button);
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         Switch splitKeyboardSwitch = new Switch(this);
@@ -976,8 +976,7 @@ public class SettingsActivity extends Activity {
         root.addView(refreshRateHint);
 
         // Constructing the row appends it to `root`.
-        new KeyBinding(root, KEY_IMMERSIVE_KEYCODE, KEY_IMMERSIVE_SCANCODE,
-                R.string.bind_immersive_key_button);
+        new KeyBinding(root, true, R.string.bind_immersive_key_button);
     }
 
     private void addSectionHeader(LinearLayout root, int titleRes, int topPadding) {
@@ -995,23 +994,25 @@ public class SettingsActivity extends Activity {
      * listening state lives per row instead of on the activity.
      */
     private final class KeyBinding {
+        private final boolean immersive;
         private final String keyPref;
-        /**
-         * Where to store the raw evdev scan code, or null when only the Android
-         * key code matters. Immersive mode needs it: {@link KeyCodeMapper} has no
-         * entry for the volume keys, and its root helper only ever sees evdev
-         * codes.
-         */
         private final String scanPref;
+        private final String chordPref;
+        private final String labelPref;
         private final int buttonLabelRes;
         private final Button button;
         private final TextView status;
         private CountDownTimer timer;
+        private final LinkedHashMap<Long, KeyEvent> held = new LinkedHashMap<>();
+        private boolean attempted;
+        private boolean invalidChord;
 
-        KeyBinding(LinearLayout root, String keyPref, String scanPref,
-                   int buttonLabelRes) {
-            this.keyPref = keyPref;
-            this.scanPref = scanPref;
+        KeyBinding(LinearLayout root, boolean immersive, int buttonLabelRes) {
+            this.immersive = immersive;
+            keyPref = immersive ? KEY_IMMERSIVE_KEYCODE : MainActivity.KEY_BOUND_KEYCODE;
+            scanPref = immersive ? KEY_IMMERSIVE_SCANCODE : MainActivity.KEY_BOUND_SCANCODE;
+            chordPref = immersive ? ImmersiveMode.KEY_CHORD : MainActivity.KEY_BOUND_CHORD;
+            labelPref = immersive ? ImmersiveMode.KEY_CHORD_LABEL : MainActivity.KEY_BOUND_CHORD_LABEL;
             this.buttonLabelRes = buttonLabelRes;
 
             status = new TextView(SettingsActivity.this);
@@ -1029,10 +1030,15 @@ public class SettingsActivity extends Activity {
         }
 
         private void startListening() {
-            if (listeningBinding == this)
-                return;
+            boolean wasListening = listeningBinding == this;
             stopListening();
+            if (wasListening)
+                return;
             listeningBinding = this;
+            startCountdown();
+        }
+
+        private void startCountdown() {
             button.setText(getString(R.string.listening_countdown, 5));
             timer = new CountDownTimer(5000, 1000) {
                 @Override
@@ -1043,30 +1049,39 @@ public class SettingsActivity extends Activity {
 
                 @Override
                 public void onFinish() {
-                    // Timed out with no key: clear the binding, matching the
-                    // original behaviour of "listen, then store whatever came".
-                    bind(UNBOUND, UNBOUND);
+                    if (attempted)
+                        stopListening();
+                    else
+                        bind(UNBOUND, UNBOUND, "", "");
                 }
             }.start();
         }
 
         /** Stop listening without changing what is bound. */
         void cancel() {
+            held.clear();
+            attempted = false;
+            invalidChord = false;
+            stopCountdown();
+            button.setText(buttonLabelRes);
+        }
+
+        private void stopCountdown() {
             if (timer != null) {
                 timer.cancel();
                 timer = null;
             }
-            button.setText(buttonLabelRes);
         }
 
-        void bind(int keycode, int scancode) {
+        void bind(int keycode, int scancode, String chord, String label) {
             cancel();
             listeningBinding = null;
             SharedPreferences.Editor edit =
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
-            edit.putInt(keyPref, keycode);
-            if (scanPref != null)
-                edit.putInt(scanPref, scancode);
+            edit.putInt(keyPref, keycode).putInt(scanPref, scancode)
+                    .putString(chordPref, chord).putString(labelPref, label);
+            if (immersive)
+                edit.remove(ImmersiveMode.KEY_MODIFIERS);
             edit.apply();
             updateStatus();
         }
@@ -1074,16 +1089,24 @@ public class SettingsActivity extends Activity {
         void updateStatus() {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             int bound = prefs.getInt(keyPref, UNBOUND);
-            int scan = scanPref == null ? UNBOUND : prefs.getInt(scanPref, UNBOUND);
-            if (bound == UNBOUND && scan <= 0) {
+            int scan = prefs.getInt(scanPref, UNBOUND);
+            KeyChord chord = KeyChord.parse(prefs.getString(chordPref, ""));
+            if (chord.isBound()) {
+                status.setText(getString(R.string.status_current,
+                        chord.statusLabel(SettingsActivity.this, prefs.getString(labelPref, ""))));
+                status.setTextColor(Color.GRAY);
+                return;
+            }
+            if ((bound == UNBOUND && scan <= 0)
+                    || (immersive && prefs.getInt(ImmersiveMode.KEY_MODIFIERS, 0) != 0)) {
                 status.setText(R.string.status_current_none);
                 status.setTextColor(Color.GRAY);
                 return;
             }
-            String name = KeyCodeMapper.keyName(SettingsActivity.this, bound, scan);
+            String name = KeyChord.statusLabel(SettingsActivity.this, bound, scan);
             // A binding that resolves to no evdev code is useless to the root
             // helper, so say so here rather than let the key quietly do nothing.
-            if (scanPref != null && resolveEvdev(bound, scan) <= 0) {
+            if (immersive && resolveEvdev(bound, scan) <= 0) {
                 status.setText(getString(R.string.status_current_no_scancode, name));
                 status.setTextColor(0xFFC62828);  // red
                 return;
@@ -1095,6 +1118,48 @@ public class SettingsActivity extends Activity {
         private int resolveEvdev(int keycode, int scancode) {
             return scancode > 0 ? scancode
                     : (keycode == UNBOUND ? -1 : KeyCodeMapper.getScanCode(keycode));
+        }
+
+        void onKeyDown(KeyEvent event) {
+            if (!KeyPresses.isFreshDown(event)
+                    || (event.getKeyCode() == KeyEvent.KEYCODE_UNKNOWN && event.getScanCode() <= 0))
+                return;
+            if (held.isEmpty()) {
+                attempted = true;
+                stopCountdown();
+                button.setText(R.string.key_binding_release);
+            } else if (held.values().iterator().next().getDeviceId() != event.getDeviceId()) {
+                invalidChord = true;
+            }
+            held.putIfAbsent(KeyPresses.identity(event), new KeyEvent(event));
+            invalidChord |= held.size() > KeyChord.MAX_KEYS;
+        }
+
+        void onKeyUp(KeyEvent event) {
+            long key = KeyPresses.identity(event);
+            KeyEvent released = held.get(key);
+            if (released == null)
+                return;
+            if (!invalidChord && !event.isCanceled()) {
+                if (held.size() == 1) {
+                    bind(released.getKeyCode(), released.getScanCode(), "", "");
+                    return;
+                }
+                ArrayList<String> codes = new ArrayList<>(held.size());
+                for (KeyEvent member : held.values())
+                    codes.add(Integer.toString(member.getScanCode()));
+                String chord = String.join(",", codes);
+                if (KeyChord.parse(chord).isBound()) {
+                    bind(UNBOUND, UNBOUND, chord, KeyChord.label(held.values()));
+                    return;
+                }
+            }
+
+            // Let the whole rejected attempt lift before starting another one.
+            held.remove(key);
+            invalidChord = !held.isEmpty();
+            if (!invalidChord)
+                startCountdown();
         }
     }
 
@@ -1416,6 +1481,200 @@ public class SettingsActivity extends Activity {
             hint.setPadding(0, dp(2), 0, dp(12));
             root.addView(hint);
         }
+    }
+
+    private void addHdrSection(LinearLayout root) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(16), 0, 0);
+        Switch hdrSwitch = new Switch(this);
+        hdrSwitch.setText(R.string.hdr_switch);
+        hdrSwitch.setTextSize(14);
+        hdrSwitch.setMinWidth(0);
+        hdrSwitch.setPadding(0, 0, dp(8), 0);
+        hdrSwitch.setChecked(prefs.getBoolean(MainActivity.KEY_EXPERIMENTAL_HDR, false));
+        row.addView(hdrSwitch, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button brightness = new Button(this);
+        brightness.setTextSize(12);
+        brightness.setAllCaps(false);
+        brightness.setMinWidth(0);
+        brightness.setMinimumWidth(0);
+        brightness.setMaxWidth(dp(148));
+        brightness.setPadding(dp(8), 0, dp(8), 0);
+        updateHdrBrightnessButton(brightness, prefs);
+        brightness.setEnabled(hdrSwitch.isChecked());
+        brightness.setOnClickListener(view -> showHdrBrightnessDialog(brightness, prefs));
+        row.addView(brightness, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        Button contentGain = new Button(this);
+        contentGain.setTextSize(14);
+        contentGain.setAllCaps(false);
+        updateHdrContentGainButton(contentGain, prefs);
+        contentGain.setEnabled(hdrSwitch.isChecked());
+        contentGain.setOnClickListener(view -> showHdrContentGainDialog(contentGain, prefs));
+        hdrSwitch.setOnCheckedChangeListener((view, checked) -> {
+            prefs.edit().putBoolean(MainActivity.KEY_EXPERIMENTAL_HDR, checked).apply();
+            brightness.setEnabled(checked);
+            contentGain.setEnabled(checked);
+        });
+        root.addView(row);
+        root.addView(contentGain, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView hint = new TextView(this);
+        hint.setText(R.string.hdr_hint);
+        hint.setTextSize(12);
+        hint.setTextColor(Color.GRAY);
+        hint.setPadding(0, dp(4), 0, dp(12));
+        root.addView(hint);
+    }
+
+    private void updateHdrContentGainButton(Button button, SharedPreferences prefs) {
+        int percent = HdrContentGain.clamp(prefs.getInt(
+                HdrContentGain.KEY_PERCENT, HdrContentGain.DEFAULT_PERCENT));
+        button.setText(getString(R.string.hdr_content_gain_button, percent / 100.0f));
+        button.setContentDescription(getString(
+                R.string.hdr_content_gain_accessibility, percent / 100.0f));
+    }
+
+    private void showHdrContentGainDialog(Button button, SharedPreferences prefs) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), dp(12), dp(24), 0);
+        TextView explanation = new TextView(this);
+        explanation.setText(R.string.hdr_content_gain_hint);
+        explanation.setTextSize(14);
+        content.addView(explanation);
+
+        TextView value = new TextView(this);
+        value.setTextSize(20);
+        value.setPadding(0, dp(16), 0, dp(8));
+        content.addView(value);
+        SeekBar seek = new SeekBar(this);
+        seek.setContentDescription(getString(R.string.hdr_content_gain_title));
+        seek.setMax((HdrContentGain.MAX_PERCENT - HdrContentGain.MIN_PERCENT)
+                / HdrContentGain.STEP_PERCENT);
+        int current = HdrContentGain.clamp(prefs.getInt(
+                HdrContentGain.KEY_PERCENT, HdrContentGain.DEFAULT_PERCENT));
+        seek.setProgress((current - HdrContentGain.MIN_PERCENT) / HdrContentGain.STEP_PERCENT);
+        value.setText(getString(R.string.hdr_content_gain_value, current / 100.0f));
+        seek.setStateDescription(value.getText());
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int percent = HdrContentGain.MIN_PERCENT + progress * HdrContentGain.STEP_PERCENT;
+                value.setText(getString(R.string.hdr_content_gain_value, percent / 100.0f));
+                seek.setStateDescription(value.getText());
+                prefs.edit().putInt(HdrContentGain.KEY_PERCENT, percent).apply();
+                updateHdrContentGainButton(button, prefs);
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        content.addView(seek, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout presets = new LinearLayout(this);
+        for (int percent : new int[] {50, 100, 150, 200}) {
+            Button preset = new Button(this);
+            preset.setText(getString(R.string.hdr_content_gain_value, percent / 100.0f));
+            preset.setTextSize(12);
+            preset.setAllCaps(false);
+            preset.setMinWidth(0);
+            preset.setMinimumWidth(0);
+            preset.setPadding(dp(4), 0, dp(4), 0);
+            preset.setOnClickListener(view -> seek.setProgress(
+                    (percent - HdrContentGain.MIN_PERCENT) / HdrContentGain.STEP_PERCENT));
+            presets.addView(preset, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        content.addView(presets);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.hdr_content_gain_title)
+                .setView(scroll)
+                .setNeutralButton(R.string.hdr_content_gain_reset, null)
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(view -> seek.setProgress(
+                        (HdrContentGain.DEFAULT_PERCENT - HdrContentGain.MIN_PERCENT)
+                                / HdrContentGain.STEP_PERCENT)));
+        dialog.show();
+    }
+
+    private void updateHdrBrightnessButton(Button button, SharedPreferences prefs) {
+        int nits = HdrBrightness.clamp(prefs.getInt(
+                HdrBrightness.KEY_SDR_WHITE_NITS, HdrBrightness.DEFAULT_NITS));
+        button.setText(getString(R.string.hdr_brightness_button, nits));
+        button.setContentDescription(getString(R.string.hdr_brightness_accessibility, nits));
+    }
+
+    private void showHdrBrightnessDialog(Button button, SharedPreferences prefs) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), dp(12), dp(24), 0);
+        TextView explanation = new TextView(this);
+        explanation.setText(R.string.hdr_brightness_hint);
+        explanation.setTextSize(14);
+        content.addView(explanation);
+
+        TextView value = new TextView(this);
+        value.setTextSize(20);
+        value.setPadding(0, dp(16), 0, dp(8));
+        content.addView(value);
+        SeekBar seek = new SeekBar(this);
+        seek.setContentDescription(getString(R.string.hdr_brightness_title));
+        seek.setMin(HdrBrightness.MIN_NITS);
+        seek.setMax(HdrBrightness.MAX_NITS);
+        int current = HdrBrightness.clamp(prefs.getInt(
+                HdrBrightness.KEY_SDR_WHITE_NITS, HdrBrightness.DEFAULT_NITS));
+        seek.setProgress(current);
+        seek.setStateDescription(getString(R.string.hdr_brightness_value, current));
+        value.setText(getString(R.string.hdr_brightness_value, current));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int nits = progress;
+                value.setText(getString(R.string.hdr_brightness_value, nits));
+                seek.setStateDescription(getString(R.string.hdr_brightness_value, nits));
+                prefs.edit().putInt(HdrBrightness.KEY_SDR_WHITE_NITS, nits).apply();
+                updateHdrBrightnessButton(button, prefs);
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        content.addView(seek, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout presets = new LinearLayout(this);
+        for (int nits : new int[] {HdrBrightness.DEFAULT_NITS, 300, 400}) {
+            Button preset = new Button(this);
+            preset.setText(getString(R.string.hdr_brightness_value, nits));
+            preset.setTextSize(12);
+            preset.setAllCaps(false);
+            preset.setMinWidth(0);
+            preset.setMinimumWidth(0);
+            preset.setPadding(dp(4), 0, dp(4), 0);
+            preset.setOnClickListener(view -> seek.setProgress(nits));
+            presets.addView(preset, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        content.addView(presets);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.hdr_brightness_title)
+                .setView(scroll)
+                .setNeutralButton(R.string.hdr_brightness_reset, null)
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(view -> seek.setProgress(
+                        HdrBrightness.DEFAULT_NITS)));
+        dialog.show();
     }
 
     // Connection settings: a custom daemon socket path and a "connect with root"
@@ -1828,17 +2087,17 @@ public class SettingsActivity extends Activity {
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (listeningBinding == null) return super.onKeyDown(keyCode, event);
-
-        // Ignore generic Virtual Keyboard keycode (it's a placeholder)
-        if (keyCode == KeyEvent.KEYCODE_UNKNOWN) return true;
-
-        // The scan code is recorded alongside the key code: it is what the
-        // immersive-mode root helper matches on, and it is the only identity a
-        // key like Volume Up has once Android is out of the picture.
-        listeningBinding.bind(keyCode, event.getScanCode());
-        Log.i(TAG, "Bound keycode: " + keyCode + " scancode: " + event.getScanCode());
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        boolean tail = bindingPresses.consumeTail(event);
+        if (listeningBinding == null)
+            return tail || super.dispatchKeyEvent(event);
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (KeyPresses.isFreshDown(event))
+                bindingPresses.add(event);
+            listeningBinding.onKeyDown(event);
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            listeningBinding.onKeyUp(event);
+        }
         return true;
     }
 
