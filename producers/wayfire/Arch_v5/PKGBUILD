@@ -1,0 +1,102 @@
+# Maintainer: anland contributors
+# Run build.sh to resolve the checked local input archive.
+pkgname=wayfire-anland
+pkgver=0.20.2
+pkgrel=1
+pkgdesc='Patched wlroots 0.20 runtime and isolated Anland backend for stock Wayfire'
+arch=(aarch64)
+url='https://github.com/SuperTurtleDev/anland'
+license=(MIT)
+depends=(glibc 'libdrm>=2.4.129' 'pixman>=0.43' 'libxkbcommon>=1.11' libinput seatd systemd-libs
+    'wayland>=1.24' libdisplay-info libxcb xcb-util-wm xcb-util-errors
+    mesa libglvnd cjson wayfire wf-config)
+makedepends=(base-devel patchelf cmake meson ninja pkgconf python git 'wayland-protocols>=1.47')
+optdepends=(
+    'wayfire-plugins-extra: additional animation and effect plugins'
+    'swaybg: background wallpaper support'
+    'waybar: status bar'
+    'foot: fast wayland terminal'
+    'fuzzel: application launcher'
+)
+source=(
+    'wlroots::git+https://gitlab.freedesktop.org/wlroots/wlroots.git#commit=7621df59d572696a09979cff03615fa51c893f24'
+    'anland-inputs.tar.gz'
+)
+sha256sums=(
+    'SKIP'
+    '@INPUT_SHA256@'
+)
+
+_prefix=/usr/lib/wayfire-anland
+options=(!lto)
+
+_stage_env() {
+    export PATH="$srcdir/stage$_prefix/bin:$PATH"
+    export PKG_CONFIG_PATH="$srcdir/stage$_prefix/lib/pkgconfig:$srcdir/stage$_prefix/share/pkgconfig"
+    export CMAKE_PREFIX_PATH="$srcdir/stage$_prefix"
+    export LD_LIBRARY_PATH="$srcdir/stage$_prefix/lib"
+}
+
+_stage_pc() {
+    local file
+    while IFS= read -r -d '' file; do
+        sed -i "s|=\($_prefix\)|=$srcdir/stage\1|g" "$file"
+    done < <(find "$srcdir/stage$_prefix" -name '*.pc' -print0)
+}
+
+_license() {
+    install -Dm644 "$srcdir/anland-inputs/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/anland-LICENSE"
+    install -Dm644 "$srcdir/wlroots/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/wlroots-LICENSE"
+    install -Dm644 "$srcdir/anland-inputs/sources.json" "$pkgdir/usr/share/doc/$pkgname/sources.json"
+}
+
+prepare() {
+    mkdir -p "$srcdir/trees" "$srcdir/anland-inputs/public-build"
+    printf 'cmake_minimum_required(VERSION 3.19)\nproject(anland_public LANGUAGES C)\nadd_subdirectory(../libdisplay_producer producer)\n' > "$srcdir/anland-inputs/public-build/CMakeLists.txt"
+
+    patch --batch --forward --fuzz=2 --no-backup-if-mismatch -p1 \
+        -d "$srcdir/wlroots" -i "$srcdir/anland-inputs/patches/wlroots.patch" || return 1
+
+    mkdir -p "$srcdir/wlroots/backend/anland"
+    cp -aL "$srcdir/anland-inputs/backend/." "$srcdir/wlroots/backend/anland/"
+}
+
+build() {
+    mkdir -p "$srcdir/stage"
+    _stage_env
+    cmake -S "$srcdir/anland-inputs/public-build" -B "$srcdir/build-producer" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$_prefix" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_INCLUDEDIR=include
+    cmake --build "$srcdir/build-producer" --parallel "${JOBS:-4}"
+    DESTDIR="$srcdir/stage" cmake --install "$srcdir/build-producer"
+    _stage_pc
+
+    meson setup "$srcdir/build-wlroots" "$srcdir/wlroots" --prefix="$_prefix" \
+        --libdir=lib --buildtype=release --wrap-mode=nodownload \
+        -Dexamples=false -Dbackends=drm,libinput -Drenderers=gles2 \
+        -Dallocators=gbm -Dsession=enabled -Dlibliftoff=disabled -Dxwayland=enabled
+    meson compile -C "$srcdir/build-wlroots" -j "${JOBS:-4}"
+    DESTDIR="$srcdir/stage" meson install -C "$srcdir/build-wlroots" --no-rebuild
+    _stage_pc
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$srcdir/build-producer"
+    DESTDIR="$pkgdir" meson install -C "$srcdir/build-wlroots" --no-rebuild
+
+    install -Dm755 "$srcdir/anland-inputs/startup.sh" "$pkgdir/usr/bin/wayfire-anland"
+    _license
+
+    while IFS= read -r -d '' file; do
+        if [[ $(head -c4 "$file") == $'\x7fELF' ]]; then patchelf --set-rpath "$_prefix/lib" "$file"; fi
+    done < <(find "$pkgdir$_prefix" -type f -print0)
+
+    local file linkage
+    while IFS= read -r -d '' file; do
+        [[ $(head -c4 "$file") == $'\x7fELF' ]] || continue
+        readelf -h "$file" | grep -q 'Machine:.*AArch64' || return 1
+        linkage=$(env LD_LIBRARY_PATH="$pkgdir$_prefix/lib" ldd "$file") || return 1
+        [[ $linkage != *'not found'* ]] || { printf '%s\n' "$linkage" >&2; return 1; }
+        readelf -d "$file" | grep -E '(RPATH|RUNPATH)' | grep -F "$srcdir" && return 1
+        :
+    done < <(find "$pkgdir$_prefix" -type f -print0)
+}
