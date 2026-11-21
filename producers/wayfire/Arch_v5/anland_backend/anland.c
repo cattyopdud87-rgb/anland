@@ -113,7 +113,28 @@ static void announce_devices(struct anland_backend *b) {
 static int reconnect(void *data) {
 	struct anland_backend *b = data;
 	if (b->destroying) return 0;
-	if (!b->session_lost && anland_device_is_connected(b->device)) return 0;
+	if (!b->session_lost && anland_device_is_connected(b->device)) {
+		anland_device_output_t info;
+		if (anland_de_backend_get_output(b->de, &info) == 0 &&
+			info.width && info.height &&
+			(info.width != b->width || info.height != b->height)) {
+			b->width = info.width;
+			b->height = info.height;
+			uint32_t r = info.refresh_mhz;
+			if (r == 0) r = 120000;
+			else if (r < 1000) r *= 1000;
+			b->refresh = r;
+			anland_drop_buffers(b);
+			anland_import_buffers(b);
+			struct wlr_output_state state;
+			wlr_output_state_init(&state);
+			wlr_output_state_set_custom_mode(&state, b->width, b->height, b->refresh);
+			wlr_output_send_request_state(&b->output.base, &state);
+			wlr_output_state_finish(&state);
+			anland_arm_frame(b);
+		}
+		return 0;
+	}
 	if (!b->session_lost || b->output.swapchain)
 		anland_drop_session(b);
 	if (!anland_device_is_daemon_alive(b->device) &&

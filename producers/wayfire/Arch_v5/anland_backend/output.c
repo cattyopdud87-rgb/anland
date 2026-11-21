@@ -60,6 +60,28 @@ void anland_dispatch_scene(struct anland_backend *backend) {
 					frame = true;
 				break;
 			case ANLAND_SCENE_EVENT_OUTPUT_CHANGED:
+				if (event->u.output.width && event->u.output.height &&
+					(event->u.output.width != backend->width ||
+					 event->u.output.height != backend->height ||
+					 (event->u.output.refresh_mhz &&
+					  event->u.output.refresh_mhz != backend->refresh))) {
+					backend->width = event->u.output.width;
+					backend->height = event->u.output.height;
+					if (event->u.output.refresh_mhz) {
+						uint32_t r = event->u.output.refresh_mhz;
+						if (r < 1000) r *= 1000;
+						backend->refresh = r;
+					}
+					anland_drop_buffers(backend);
+					anland_import_buffers(backend);
+					struct wlr_output_state state;
+					wlr_output_state_init(&state);
+					wlr_output_state_set_custom_mode(&state, backend->width,
+						backend->height, backend->refresh);
+					wlr_output_send_request_state(&output->base, &state);
+					wlr_output_state_finish(&state);
+					frame = true;
+				}
 				break;
 			}
 		}
