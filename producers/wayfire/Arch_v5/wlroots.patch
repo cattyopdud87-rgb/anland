@@ -1,0 +1,302 @@
+ M backend/backend.c
+ M backend/meson.build
+ M include/wlr/render/swapchain.h
+ M include/wlr/types/wlr_keyboard.h
+ M render/egl.c
+ M render/swapchain.c
+ M types/output/swapchain.c
+ M types/seat/wlr_seat_keyboard.c
+?? backend/anland/
+?? include/wlr/backend/anland.h
+diff --git a/backend/backend.c b/backend/backend.c
+index 3d84aa6..83ad3b6 100644
+--- a/backend/backend.c
++++ b/backend/backend.c
+@@ -5,6 +5,7 @@
+ #include <wayland-server-core.h>
+ 
+ #include <wlr/backend/headless.h>
++#include <wlr/backend/anland.h>
+ #include <wlr/backend/interface.h>
+ #include <wlr/backend/multi.h>
+ #include <wlr/backend/wayland.h>
+@@ -218,6 +219,14 @@ static struct wlr_backend *attempt_x11_backend(struct wl_event_loop *loop,
+ #endif
+ }
+ 
++static struct wlr_backend *attempt_anland_backend(struct wl_event_loop *loop) {
++	struct wlr_backend *backend = wlr_anland_backend_create(loop, NULL);
++	if (backend == NULL) {
++		return NULL;
++	}
++	return backend;
++}
++
+ static struct wlr_backend *attempt_headless_backend(struct wl_event_loop *loop) {
+ 	struct wlr_backend *backend = wlr_headless_backend_create(loop);
+ 	if (backend == NULL) {
+@@ -295,6 +304,8 @@ static bool attempt_backend_by_name(struct wl_event_loop *loop,
+ 		backend = attempt_wl_backend(loop);
+ 	} else if (strcmp(name, "x11") == 0) {
+ 		backend = attempt_x11_backend(loop, NULL);
++	} else if (strcmp(name, "anland") == 0) {
++		backend = attempt_anland_backend(loop);
+ 	} else if (strcmp(name, "headless") == 0) {
+ 		backend = attempt_headless_backend(loop);
+ 	} else if (strcmp(name, "drm") == 0 || strcmp(name, "libinput") == 0) {
+diff --git a/backend/meson.build b/backend/meson.build
+index ed977d3..d85e500 100644
+--- a/backend/meson.build
++++ b/backend/meson.build
+@@ -27,3 +27,4 @@ endforeach
+ subdir('multi')
+ subdir('wayland')
+ subdir('headless')
++subdir('anland')
+diff --git a/include/wlr/render/swapchain.h b/include/wlr/render/swapchain.h
+index 4ca1ac5..ed3c876 100644
+--- a/include/wlr/render/swapchain.h
++++ b/include/wlr/render/swapchain.h
+@@ -5,7 +5,7 @@
+ #include <wayland-server-core.h>
+ #include <wlr/render/drm_format_set.h>
+ 
+-#define WLR_SWAPCHAIN_CAP 4
++#define WLR_SWAPCHAIN_CAP 8
+ 
+ struct wlr_swapchain_slot {
+ 	struct wlr_buffer *buffer;
+@@ -16,6 +16,9 @@ struct wlr_swapchain_slot {
+ 	} WLR_PRIVATE;
+ };
+ 
++/** Selects an existing slot for external swapchains. Returns a slot index. */
++typedef size_t (*wlr_swapchain_select_slot_func_t)(void *data);
++
+ struct wlr_swapchain {
+ 	struct wlr_allocator *allocator; // NULL if destroyed
+ 
+@@ -23,6 +26,10 @@ struct wlr_swapchain {
+ 	struct wlr_drm_format format;
+ 
+ 	struct wlr_swapchain_slot slots[WLR_SWAPCHAIN_CAP];
++	size_t ref_count;
++	size_t external_buffer_count;
++	wlr_swapchain_select_slot_func_t select_slot;
++	void *select_slot_data;
+ 
+ 	struct {
+ 		struct wl_listener allocator_destroy;
+@@ -32,6 +39,16 @@ struct wlr_swapchain {
+ struct wlr_swapchain *wlr_swapchain_create(
+ 	struct wlr_allocator *alloc, int width, int height,
+ 	const struct wlr_drm_format *format);
++/**
++ * Creates a swapchain backed by caller-provided buffers. On success, ownership
++ * of every buffer's producer reference transfers to the swapchain, which never
++ * allocates additional buffers. On failure, ownership remains with the caller.
++ */
++struct wlr_swapchain *wlr_swapchain_create_external(int width, int height,
++	const struct wlr_drm_format *format, struct wlr_buffer *const *buffers,
++	size_t buffer_count, wlr_swapchain_select_slot_func_t select_slot,
++	void *data);
++struct wlr_swapchain *wlr_swapchain_ref(struct wlr_swapchain *swapchain);
+ void wlr_swapchain_destroy(struct wlr_swapchain *swapchain);
+ /**
+  * Acquire a buffer from the swap chain.
+diff --git a/include/wlr/types/wlr_keyboard.h b/include/wlr/types/wlr_keyboard.h
+index 20a310f..d71360b 100644
+--- a/include/wlr/types/wlr_keyboard.h
++++ b/include/wlr/types/wlr_keyboard.h
+@@ -94,6 +94,13 @@ struct wlr_keyboard {
+ 		struct wl_signal repeat_info;
+ 	} events;
+ 
++	/* Private Anland extension: committed-text maps must never be broadcast.
++	 * The owner manages these borrowed pointers and restores the seat before
++	 * changing them. NULL client with client_only still means restricted. */
++	bool keymap_client_only;
++	struct wl_client *keymap_client;
++	struct wlr_keyboard *keymap_fallback;
++
+ 	void *data;
+ };
+ 
+diff --git a/render/egl.c b/render/egl.c
+index 8673aca..c67e52f 100644
+--- a/render/egl.c
++++ b/render/egl.c
+@@ -591,8 +591,8 @@ struct wlr_egl *wlr_egl_create_with_drm_fd(int drm_fd) {
+ 
+ 		egl->gbm_device = gbm_create_device(gbm_fd);
+ 		if (!egl->gbm_device) {
++			wlr_log_errno(WLR_ERROR, "Failed to create GBM device from fd %d", gbm_fd);
+ 			close(gbm_fd);
+-			wlr_log(WLR_ERROR, "Failed to create GBM device");
+ 			goto error;
+ 		}
+ 
+diff --git a/render/swapchain.c b/render/swapchain.c
+index 24d6f1a..addf141 100644
+--- a/render/swapchain.c
++++ b/render/swapchain.c
+@@ -39,6 +39,44 @@ struct wlr_swapchain *wlr_swapchain_create(
+ 	return swapchain;
+ }
+ 
++struct wlr_swapchain *wlr_swapchain_create_external(int width, int height,
++		const struct wlr_drm_format *format, struct wlr_buffer *const *buffers,
++		size_t buffer_count, wlr_swapchain_select_slot_func_t select_slot,
++		void *data) {
++	assert(width > 0 && height > 0);
++	if (buffers == NULL || buffer_count == 0 ||
++			buffer_count > WLR_SWAPCHAIN_CAP || select_slot == NULL) {
++		return NULL;
++	}
++	for (size_t i = 0; i < buffer_count; i++) {
++		if (buffers[i] == NULL || buffers[i]->width != width ||
++				buffers[i]->height != height) {
++			return NULL;
++		}
++	}
++
++	struct wlr_swapchain *swapchain = calloc(1, sizeof(*swapchain));
++	if (swapchain == NULL) {
++		return NULL;
++	}
++	swapchain->ref_count = 1;
++	swapchain->width = width;
++	swapchain->height = height;
++	swapchain->external_buffer_count = buffer_count;
++	swapchain->select_slot = select_slot;
++	swapchain->select_slot_data = data;
++	wl_list_init(&swapchain->allocator_destroy.link);
++	if (!wlr_drm_format_copy(&swapchain->format, format)) {
++		free(swapchain);
++		return NULL;
++	}
++
++	for (size_t i = 0; i < buffer_count; i++) {
++		swapchain->slots[i].buffer = buffers[i];
++	}
++	return swapchain;
++}
++
+ static void slot_reset(struct wlr_swapchain_slot *slot) {
+ 	if (slot->acquired) {
+ 		wl_list_remove(&slot->release.link);
+@@ -47,10 +85,21 @@ static void slot_reset(struct wlr_swapchain_slot *slot) {
+ 	*slot = (struct wlr_swapchain_slot){0};
+ }
+ 
++struct wlr_swapchain *wlr_swapchain_ref(struct wlr_swapchain *swapchain) {
++	if (swapchain != NULL) {
++		swapchain->ref_count++;
++	}
++	return swapchain;
++}
++
+ void wlr_swapchain_destroy(struct wlr_swapchain *swapchain) {
+ 	if (swapchain == NULL) {
+ 		return;
+ 	}
++	if (swapchain->ref_count > 1) {
++		swapchain->ref_count--;
++		return;
++	}
+ 	for (size_t i = 0; i < WLR_SWAPCHAIN_CAP; i++) {
+ 		slot_reset(&swapchain->slots[i]);
+ 	}
+@@ -80,6 +129,17 @@ static struct wlr_buffer *slot_acquire(struct wlr_swapchain *swapchain,
+ }
+ 
+ struct wlr_buffer *wlr_swapchain_acquire(struct wlr_swapchain *swapchain) {
++	if (swapchain->select_slot != NULL) {
++		size_t index = swapchain->select_slot(swapchain->select_slot_data);
++		if (index >= swapchain->external_buffer_count) {
++			return NULL;
++		}
++		struct wlr_swapchain_slot *slot = &swapchain->slots[index];
++		if (slot->buffer == NULL || slot->acquired) {
++			return NULL;
++		}
++		return slot_acquire(swapchain, slot);
++	}
+ 	struct wlr_swapchain_slot *free_slot = NULL;
+ 	for (size_t i = 0; i < WLR_SWAPCHAIN_CAP; i++) {
+ 		struct wlr_swapchain_slot *slot = &swapchain->slots[i];
+diff --git a/types/output/swapchain.c b/types/output/swapchain.c
+index 01857a2..7a7d850 100644
+--- a/types/output/swapchain.c
++++ b/types/output/swapchain.c
+@@ -1,3 +1,4 @@
++#include <wlr/backend/anland.h>
+ #include <assert.h>
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+@@ -65,6 +66,17 @@ static bool test_swapchain(struct wlr_output *output,
+ 
+ bool wlr_output_configure_primary_swapchain(struct wlr_output *output,
+ 		const struct wlr_output_state *state, struct wlr_swapchain **swapchain_ptr) {
++	if (wlr_output_is_anland(output)) {
++		struct wlr_swapchain *anland_sc = wlr_anland_output_get_swapchain(output);
++		if (anland_sc == NULL) {
++			return false;
++		}
++		if (*swapchain_ptr != anland_sc) {
++			wlr_swapchain_destroy(*swapchain_ptr);
++			*swapchain_ptr = wlr_swapchain_ref(anland_sc);
++		}
++		return true;
++	}
+ 	struct wlr_output_state empty_state;
+ 	if (state == NULL) {
+ 		wlr_output_state_init(&empty_state);
+diff --git a/types/seat/wlr_seat_keyboard.c b/types/seat/wlr_seat_keyboard.c
+index 3227035..2028380 100644
+--- a/types/seat/wlr_seat_keyboard.c
++++ b/types/seat/wlr_seat_keyboard.c
+@@ -82,6 +82,17 @@ void wlr_seat_keyboard_send_key(struct wlr_seat *wlr_seat, uint32_t time,
+ 	}
+ }
+ 
++/* Resolve before every map delivery, including new wl_keyboard resources
++ * created while a private Unicode keyboard is idle on the seat. */
++static struct wlr_keyboard *seat_client_keyboard(struct wlr_seat_client *client,
++		struct wlr_keyboard *keyboard) {
++	if (keyboard && keyboard->keymap_client_only &&
++			keyboard->keymap_client != client->client) {
++		return keyboard->keymap_fallback;
++	}
++	return keyboard;
++}
++
+ static void seat_client_send_keymap(struct wlr_seat_client *client,
+ 	struct wlr_keyboard *keyboard);
+ 
+@@ -338,6 +349,7 @@ void wlr_seat_keyboard_notify_key(struct wlr_seat *seat, uint32_t time,
+ 
+ static void seat_client_send_keymap(struct wlr_seat_client *client,
+ 		struct wlr_keyboard *keyboard) {
++	keyboard = seat_client_keyboard(client, keyboard);
+ 	if (!keyboard) {
+ 		return;
+ 	}
+@@ -378,6 +390,7 @@ static void seat_client_send_keymap(struct wlr_seat_client *client,
+ 
+ static void seat_client_send_repeat_info(struct wlr_seat_client *client,
+ 		struct wlr_keyboard *keyboard) {
++	keyboard = seat_client_keyboard(client, keyboard);
+ 	if (!keyboard) {
+ 		return;
+ 	}
+@@ -413,7 +426,8 @@ void seat_client_create_keyboard(struct wlr_seat_client *seat_client,
+ 		return;
+ 	}
+ 
+-	struct wlr_keyboard *keyboard = seat_client->seat->keyboard_state.keyboard;
++	struct wlr_keyboard *keyboard = seat_client_keyboard(seat_client,
++		seat_client->seat->keyboard_state.keyboard);
+ 	if (keyboard == NULL) {
+ 		return;
+ 	}
